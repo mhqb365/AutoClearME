@@ -22,6 +22,7 @@ copy /y "AutoClearME.py" "dist\" >nul
 copy /y "AutoClearME_GUI.py" "dist\" >nul
 copy /y "AutoClearME_Update.py" "dist\" >nul
 copy /y "Run.bat" "dist\" >nul
+copy /y "CreateShortcut.bat" "dist\" >nul
 copy /y "languages.json" "dist\" >nul
 copy /y "icon.ico" "dist\" >nul
 copy /y "VERSION" "dist\" >nul
