@@ -1,74 +1,67 @@
-## English
-
-[Tiếng Việt](#tiếng-việt) | English
-
 # Auto Clear ME
 
-Auto Clear ME is a Windows utility for cleaning Intel CSME firmware (ME 11–20) from BIOS dumps.
-
-The application uses ME Analyzer to analyze the selected BIOS dump, suggests compatible ME Region and Intel FIT versions, and automatically builds a cleaned `_CLEARME` image. If one compatible FIT version fails, the application automatically retries the remaining supported versions.
-
-The original BIOS dump is **never** modified or overwritten.
+[English](#english) | [Tiếng Việt](#tiếng-việt)
 
 ---
 
-## Features
+## English
 
-* Supports Intel CSME 11–20.
-* Automatically analyzes BIOS dumps with ME Analyzer.
-* Suggests compatible ME Region and Intel FIT versions.
-* Automatically retries compatible FIT versions if one fails.
-* Supports both Single BIOS and Dual BIOS workflows.
-* Saves the cleaned BIOS beside the original dump.
-* Never overwrites the original BIOS dump.
-* Portable release with automatic dependency setup.
+Auto Clear ME is a Windows utility for cleaning Intel CSME firmware from BIOS dumps, focused on ME 11 to ME 20.
 
----
+The app uses ME Analyzer to analyze the selected BIOS dump, suggests compatible ME Region and Intel FIT versions, then tries to build a cleaned `_CLEARME` image. The original BIOS dump is never modified or overwritten.
+
+### Features
+
+- Supports Intel CSME 11 to 20.
+- Automatically analyzes BIOS dumps with ME Analyzer.
+- Suggests compatible ME Region and Intel FIT versions.
+- Automatically retries remaining compatible FIT versions if one fails.
+- Supports Single BIOS and Dual BIOS workflows.
+- Saves cleaned BIOS files beside the original input files.
+- Opens File Explorer after a successful clear.
+- Supports English and Vietnamese UI text.
+- Portable release with automatic dependency setup.
+- Built-in GitHub Release update check.
 
 ### Requirements
 
-* Windows 10 or later.
-* Intel ME Analyzer (included in the release under `MEA\`).
-* Intel ME Region repository.
-* Intel CSME System Tools (FIT).
+- Windows 10 or later.
+- Intel ME Analyzer, included in the release under `MEA\`.
+- Intel ME Region repository, selected in `Settings`.
+- Intel CSME System Tools / FIT, selected in `Settings`.
 
-Configure the **ME Region Root** and **FIT Root** folders in **Settings** before using the application.
+Intel ME Region files and Intel CSME System Tools are not included with this project. Users must provide their own copies.
 
-> **Note**
->
-> Intel ME Region files and Intel CSME System Tools (FIT) are **not included** with this project. You must provide your own copies.
+### Download And Run
 
-### Getting Started
-
-1. Open the GitHub **Releases** page.
-2. Download the latest release ZIP.
-3. Extract the ZIP to any folder.
+1. Open the GitHub `Releases` page.
+2. Download the latest release ZIP file.
+3. Extract the ZIP file to any folder.
 4. Double-click `Run.bat`.
 5. Wait while the launcher prepares the required components.
-6. Auto Clear ME starts automatically.
+6. Auto Clear ME will open automatically.
 
-`Run.bat` installs only missing components:
+`Run.bat` checks and installs only what is needed:
 
-* Python 3 (installed with `winget` if necessary)
-* Latest `pip`
-* Python packages required by ME Analyzer:
+- Python 3, installed with `winget` if Python is not found.
+- Latest `pip`.
+- Python packages required by ME Analyzer:
+  - `colorama`
+  - `crccheck`
+  - `pltable`
 
-  * `colorama`
-  * `crccheck`
-  * `pltable`
-
-If `winget` is unavailable, install Python manually from https://www.python.org/ and run `Run.bat` again.
+If `winget` is not available, install Python manually from <https://www.python.org/>, then run `Run.bat` again.
 
 ### Workflow
 
-1. Open **Settings**.
-2. Configure **FIT Root**.
-3. Configure **ME Region Root**.
-4. (Optional) Select the interface language.
+1. Open `Settings`.
+2. Select `FIT root`.
+3. Select `ME Region root`.
+4. Select the UI language if needed.
 5. Select a BIOS dump.
-6. Wait until analysis completes successfully.
-7. Verify or change the suggested ME Region and FIT version.
-8. Click **Clear ME**.
+6. Wait for `Analyze success`.
+7. Review or change the suggested `ME Region` and `FIT`.
+8. Click `Clear ME`.
 
 Single BIOS output:
 
@@ -83,139 +76,190 @@ FILE1_CLEARME.bin
 FILE2_CLEARME.bin
 ```
 
-The cleaned BIOS files are saved beside the selected input files.
+Outputs are saved next to the selected input files. After a successful clear, File Explorer opens the output folder.
 
-After a successful operation, File Explorer automatically opens the output folder.
+### Updates
 
-### Notes
+When the app opens, it checks the latest GitHub Release.
 
-* ME Analyzer starts automatically after a BIOS file is selected.
-* In Dual BIOS mode, analysis starts after both BIOS files are selected.
-* Temporary files are removed automatically.
-* If one compatible FIT version fails, Auto Clear ME automatically retries the remaining compatible versions.
-* The log window supports real-time updates.
+If a newer version is available, the app asks before updating. If the user agrees, Auto Clear ME will:
+
+1. Download the release ZIP from GitHub.
+2. Extract it to a temporary folder.
+3. Replace the portable app files.
+4. Keep the local `config.json`.
+5. Run `Run.bat` again to reopen the app.
+
+### Build Portable Folder
+
+For maintainers:
+
+```text
+Build.bat
+```
+
+The portable app is created in:
+
+```text
+dist\
+```
+
+The release ZIP is also created beside it:
+
+```text
+AutoClearME_VERSION.zip
+```
+
+Upload this ZIP file to GitHub Releases so the built-in updater can download the portable package.
+
+Users can run:
+
+```text
+dist\Run.bat
+```
+
+`Build.bat` copies `config.example.json`, not the local `config.json`.
 
 ### Safety
 
-* Always keep an untouched backup of the original programmer dump.
-* Use the correct ME Region SKU.
-* Use a compatible Intel FIT version.
-* Do not flash images that fail to build with FIT.
-* Do not flash images if ME Analyzer reports unexpected firmware information.
-* Perform the required platform reset (for example `fpt -greset`) after flashing when applicable.
+- Keep an untouched backup of the original programmer dump.
+- Use the correct ME Region SKU.
+- Use a compatible Intel FIT version.
+- Do not flash images that fail to build with FIT.
+- Do not flash images if ME Analyzer reports unexpected firmware information.
+- Perform the required platform reset, for example `fpt -greset`, after flashing when applicable.
 
 ### License
 
-Licensed under the MIT License. See `LICENSE` for details.
+MIT. See `LICENSE`.
 
 ---
 
 ## Tiếng Việt
 
-Tiếng Việt | [English](#english)
+Auto Clear ME là công cụ Windows hỗ trợ làm sạch Intel CSME trong BIOS dump, tập trung cho ME 11 đến ME 20.
 
-# Auto Clear ME
+App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME Region và Intel FIT phù hợp, sau đó thử build file đã clear với hậu tố `_CLEARME`. File BIOS dump gốc không bao giờ bị chỉnh sửa hoặc ghi đè.
 
-Auto Clear ME là công cụ dành cho Windows giúp làm sạch (Clear ME) vùng Intel CSME (ME 11–20) trong BIOS dump.
+### Tính Năng
 
-Ứng dụng sử dụng ME Analyzer để phân tích BIOS dump đã chọn, tự động đề xuất ME Region và phiên bản Intel FIT phù hợp, sau đó tạo file BIOS đã được Clear ME với hậu tố `_CLEARME`. Nếu một phiên bản FIT tương thích không thể build, ứng dụng sẽ tự động thử các phiên bản tương thích còn lại.
+- Hỗ trợ Intel CSME 11 đến 20.
+- Tự động phân tích BIOS dump bằng ME Analyzer.
+- Đề xuất ME Region và Intel FIT phù hợp.
+- Nếu một bản FIT lỗi, app tự thử các bản FIT phù hợp còn lại.
+- Hỗ trợ Single BIOS và Dual BIOS.
+- Lưu file BIOS đã clear ngay cạnh file input gốc.
+- Mở File Explorer sau khi clear thành công.
+- Hỗ trợ giao diện tiếng Anh và tiếng Việt.
+- Bản portable có launcher tự chuẩn bị thư viện cần thiết.
+- Có kiểm tra cập nhật qua GitHub Release.
 
-File BIOS dump gốc **không bao giờ** bị chỉnh sửa hoặc ghi đè.
+### Yêu Cầu
 
----
+- Windows 10 trở lên.
+- Intel ME Analyzer, đã nằm trong release tại thư mục `MEA\`.
+- Bộ Intel ME Region, chọn trong `Settings`.
+- Intel CSME System Tools / FIT, chọn trong `Settings`.
 
-## Tính năng
+Intel ME Region và Intel CSME System Tools không được phân phối kèm dự án này. Người dùng cần tự chuẩn bị.
 
-* Hỗ trợ Intel CSME từ phiên bản 11 đến 20.
-* Tự động phân tích BIOS dump bằng ME Analyzer.
-* Tự động đề xuất ME Region và phiên bản Intel FIT phù hợp.
-* Tự động thử các phiên bản Intel FIT tương thích khác nếu một phiên bản build thất bại.
-* Hỗ trợ cả quy trình Single BIOS và Dual BIOS.
-* Lưu file BIOS đã Clear ME ngay cùng thư mục với file gốc.
-* Không bao giờ ghi đè lên file BIOS dump gốc.
-* Phiên bản portable với khả năng tự động cài đặt các thành phần phụ thuộc.
+### Tải Về Và Chạy App
 
----
-
-### Yêu cầu
-
-* Windows 10 trở lên.
-* Intel ME Analyzer (đã có trong thư mục `MEA\` của bản phát hành).
-* Bộ Intel ME Region.
-* Intel CSME System Tools (FIT).
-
-Trước khi sử dụng, hãy cấu hình **ME Region Root** và **FIT Root** trong **Settings**.
-
-> **Lưu ý**
->
-> Intel ME Region và Intel CSME System Tools (FIT) **không được phân phối** cùng dự án này. Người dùng cần tự chuẩn bị.
-
-### Bắt đầu
-
-1. Mở trang GitHub **Releases**.
-2. Tải bản phát hành mới nhất.
-3. Giải nén file ZIP vào một thư mục bất kỳ.
-4. Chạy `Run.bat`.
+1. Mở trang GitHub `Releases`.
+2. Tải file ZIP của bản release mới nhất.
+3. Giải nén file ZIP ra một thư mục bất kỳ.
+4. Bấm đôi vào `Run.bat`.
 5. Chờ launcher chuẩn bị các thành phần cần thiết.
-6. Auto Clear ME sẽ tự động khởi động.
+6. Giao diện Auto Clear ME sẽ tự mở lên.
 
-`Run.bat` chỉ cài đặt những thành phần còn thiếu:
+`Run.bat` sẽ kiểm tra và chỉ cài những thứ còn thiếu:
 
-* Python 3 (qua `winget` nếu chưa có)
-* Phiên bản `pip` mới nhất
-* Các thư viện Python mà ME Analyzer yêu cầu:
+- Python 3, cài bằng `winget` nếu máy chưa có Python.
+- Bản `pip` mới nhất.
+- Các gói Python mà ME Analyzer cần:
+  - `colorama`
+  - `crccheck`
+  - `pltable`
 
-  * `colorama`
-  * `crccheck`
-  * `pltable`
+Nếu máy không có `winget`, hãy cài Python thủ công từ <https://www.python.org/>, sau đó chạy lại `Run.bat`.
 
-Nếu máy không có `winget`, hãy cài Python thủ công từ https://www.python.org/, sau đó chạy lại `Run.bat`.
+### Cách Dùng
 
-### Cách sử dụng
-
-1. Mở **Settings**.
-2. Chọn **FIT Root**.
-3. Chọn **ME Region Root**.
-4. (Tùy chọn) Chọn ngôn ngữ giao diện.
+1. Mở `Settings`.
+2. Chọn `FIT root`.
+3. Chọn `ME Region root`.
+4. Chọn ngôn ngữ giao diện nếu cần.
 5. Chọn file BIOS dump.
-6. Chờ quá trình phân tích hoàn tất.
-7. Kiểm tra hoặc thay đổi ME Region và FIT được đề xuất.
-8. Nhấn **Clear ME**.
+6. Chờ đến khi hiện `Analyze success`.
+7. Kiểm tra hoặc chọn lại `ME Region` và `FIT` được đề xuất.
+8. Bấm `Clear ME`.
 
-Kết quả với Single BIOS:
+Kết quả Single BIOS:
 
 ```text
 INPUT_CLEARME.bin
 ```
 
-Kết quả với Dual BIOS:
+Kết quả Dual BIOS:
 
 ```text
 FILE1_CLEARME.bin
 FILE2_CLEARME.bin
 ```
 
-Các file BIOS sau khi Clear ME sẽ được lưu cùng thư mục với file gốc.
+File sau khi clear sẽ được lưu ngay trong thư mục của file input. Khi clear thành công, File Explorer sẽ tự mở thư mục chứa file kết quả.
 
-Sau khi hoàn tất, File Explorer sẽ tự động mở thư mục chứa kết quả.
+### Cập Nhật
 
-### Ghi chú
+Khi mở app, app sẽ kiểm tra GitHub Release mới nhất.
 
-* ME Analyzer tự động chạy ngay sau khi chọn file BIOS.
-* Với Dual BIOS, quá trình phân tích bắt đầu sau khi chọn đủ hai file.
-* Các file tạm được tự động xóa sau khi hoàn tất.
-* Nếu một phiên bản FIT không build được, Auto Clear ME sẽ tự động thử các phiên bản tương thích còn lại.
-* Vùng log hỗ trợ theo dõi quá trình xử lý.
+Nếu có bản mới, app sẽ hỏi trước khi cập nhật. Nếu người dùng đồng ý, Auto Clear ME sẽ:
 
-### An toàn
+1. Tải file ZIP release từ GitHub.
+2. Giải nén vào thư mục tạm.
+3. Thay thế các file app portable.
+4. Giữ lại `config.json` trên máy người dùng.
+5. Chạy lại `Run.bat` để mở app lên lại.
 
-* Luôn giữ nguyên bản sao BIOS dump gốc.
-* Chọn đúng SKU của ME Region.
-* Sử dụng phiên bản Intel FIT tương thích.
-* Không flash nếu FIT báo lỗi khi build.
-* Không flash nếu ME Analyzer phát hiện thông tin firmware bất thường.
-* Sau khi flash, thực hiện platform reset (ví dụ `fpt -greset`) nếu quy trình sửa chữa yêu cầu.
+### Đóng Gói Thư Mục Portable
+
+Dành cho người bảo trì:
+
+```text
+Build.bat
+```
+
+App portable sẽ được tạo tại:
+
+```text
+dist\
+```
+
+File ZIP release cũng được tạo cùng cấp:
+
+```text
+AutoClearME_VERSION.zip
+```
+
+Upload file ZIP này lên GitHub Releases để updater trong app có thể tải đúng gói portable.
+
+Người dùng có thể chạy:
+
+```text
+dist\Run.bat
+```
+
+`Build.bat` copy `config.example.json`, không copy `config.json` cá nhân.
+
+### An Toàn
+
+- Luôn giữ nguyên bản sao BIOS dump gốc.
+- Chọn đúng SKU của ME Region.
+- Dùng phiên bản Intel FIT phù hợp.
+- Không flash nếu FIT báo lỗi khi build.
+- Không flash nếu ME Analyzer báo thông tin firmware bất thường.
+- Sau khi flash, chạy platform reset phù hợp, ví dụ `fpt -greset`, nếu quy trình sửa chữa yêu cầu.
 
 ### License
 
-Phát hành theo giấy phép MIT. Xem `LICENSE` để biết thêm chi tiết.
+MIT. Xem `LICENSE`.

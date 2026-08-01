@@ -9,25 +9,31 @@ import json
 import os
 import re
 import queue
+import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
+import tempfile
+import urllib.request
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = APP_DIR / "config.json"
 ENGINE_PATH = APP_DIR / "AutoClearME.py"
 ICON_PATH = APP_DIR / "icon.ico"
+VERSION_PATH = APP_DIR / "VERSION"
+UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
+GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
 
 LANGUAGE_PATH = APP_DIR / "languages.json"
 FALLBACK_TEXT = {
     "en": {
         "language": "Language",
-        "subtitle": "Select a BIOS dump. The tool will help you clear the ME Region 11 - 20",
+        "subtitle": "A tool to help clear ME BIOS 11 -> 20",
         "about": "About",
         "settings": "Settings",
         "bios_files": "BIOS Files",
@@ -63,12 +69,70 @@ FALLBACK_TEXT = {
         "log_empty": "Log is empty.",
         "starting_clear": "Starting Clear ME.",
         "automatic_clear_failed": "Automatic clear did not complete.",
+        "update_available_title": "Update available",
+        "update_available_message": "Auto Clear ME {version} is available. Download and install it now?",
+        "update_starting": "Starting update. The app will close and reopen after the update.",
+        "update_check_failed": "Could not check for updates.",
+    },
+    "vi": {
+        "language": "Ngôn ngữ",
+        "subtitle": "Công cụ hỗ trợ clear ME BIOS 11 -> 20",
+        "about": "Giới thiệu",
+        "settings": "Cài đặt",
+        "bios_files": "File BIOS",
+        "single_bios": "BIOS đơn",
+        "dual_bios": "BIOS kép",
+        "bios_file": "File BIOS",
+        "bios_file_1": "File BIOS 1",
+        "bios_file_2": "File BIOS 2",
+        "me_region": "ME Region",
+        "fit": "FIT",
+        "clear_me": "Clear ME",
+        "log": "Log",
+        "save_log": "Lưu log",
+        "clear_log": "Xóa log",
+        "browse": "Chọn...",
+        "settings_title": "Cài đặt Auto Clear ME",
+        "data_sources": "Cài đặt",
+        "fit_root": "FIT root",
+        "me_region_root": "ME Region root",
+        "save": "Lưu",
+        "close": "Đóng",
+        "ready": "Sẵn sàng",
+        "selected_file_cleared": "Đã xóa file đã chọn",
+        "analyzing": "Đang phân tích...",
+        "analyze_success": "Phân tích thành công",
+        "analyze_failed": "Phân tích lỗi",
+        "running": "Đang chạy...",
+        "clear_complete": "Clear hoàn tất",
+        "job_prepared": "Đã chuẩn bị job; cần build bằng FIT",
+        "error": "Lỗi",
+        "select_input_title": "Chọn BIOS dump hoặc ME region",
+        "save_log_title": "Lưu log",
+        "log_empty": "Log trống.",
+        "starting_clear": "Bắt đầu Clear ME.",
+        "automatic_clear_failed": "Clear tự động chưa hoàn tất.",
+        "update_available_title": "Có bản cập nhật",
+        "update_available_message": "Auto Clear ME {version} đã có bản mới. Tải về và cài ngay bây giờ?",
+        "update_starting": "Đang bắt đầu cập nhật. App sẽ đóng và mở lại sau khi cập nhật xong.",
+        "update_check_failed": "Không thể kiểm tra cập nhật.",
     }
 }
 
 
+def app_version() -> str:
+    try:
+        raw = VERSION_PATH.read_text(encoding="utf-8").strip()
+    except Exception:
+        raw = "0.0.0"
+    numbers = re.findall(r"\d+", raw)
+    while len(numbers) < 3:
+        numbers.append("0")
+    return ".".join(numbers[:3])
+
+
 def load_language_bundle() -> tuple[dict[str, dict[str, str]], dict[str, str]]:
-    labels = {"English": "en"}
+    labels = {"English": "en", "Tiếng Việt": "vi"}
     text = dict(FALLBACK_TEXT)
     try:
         data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8"))
@@ -90,7 +154,7 @@ LANG_NAMES = {value: key for key, value in LANG_LABELS.items()}
 class ClearMeGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Auto Clear ME")
+        self.title(f"Auto Clear ME v{app_version()}")
         if ICON_PATH.exists():
             self.iconbitmap(str(ICON_PATH))
         self.geometry("660x620")
@@ -122,6 +186,7 @@ class ClearMeGui(tk.Tk):
         self._build_ui()
         self.load_config()
         self.after(150, self.drain_queue)
+        self.after(1200, self.check_for_updates)
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -295,6 +360,84 @@ class ClearMeGui(tk.Tk):
         ttk.Entry(parent, textvariable=self.vars[key], style="Control.TEntry").grid(row=row, column=1, sticky="ew", padx=8, pady=3)
         ttk.Button(parent, text=self.t("browse"), command=lambda: self.pick_folder(key), style="Control.TButton").grid(row=row, column=2, sticky="ew", pady=3)
 
+    def current_version(self) -> str:
+        return app_version()
+
+    def check_for_updates(self) -> None:
+        threading.Thread(target=self.fetch_latest_release, daemon=True).start()
+
+    def fetch_latest_release(self) -> None:
+        try:
+            request = urllib.request.Request(GITHUB_LATEST_RELEASE_API, headers={"User-Agent": "AutoClearME"})
+            with urllib.request.urlopen(request, timeout=12) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+            latest = str(payload.get("tag_name") or payload.get("name") or "").strip()
+            url = self.release_zip_url(payload)
+            if latest and url and self.version_newer(latest, self.current_version()):
+                self.queue.put(("UPDATE_AVAILABLE", {"version": latest, "url": url}))
+        except Exception as exc:
+            self.queue.put(("UPDATE_CHECK_FAILED", str(exc)))
+
+    def release_zip_url(self, payload: dict) -> str:
+        assets = payload.get("assets") if isinstance(payload, dict) else []
+        zip_assets = [
+            item for item in assets
+            if isinstance(item, dict)
+            and str(item.get("name", "")).lower().endswith(".zip")
+            and item.get("browser_download_url")
+        ]
+        preferred = [item for item in zip_assets if "autoclearme" in str(item.get("name", "")).lower()]
+        if preferred:
+            return str(preferred[0]["browser_download_url"])
+        if zip_assets:
+            return str(zip_assets[0]["browser_download_url"])
+        return ""
+
+    def version_newer(self, latest: str, current: str) -> bool:
+        def parts(value: str) -> tuple[int, ...]:
+            numbers = re.findall(r"\d+", value)
+            return tuple(int(n) for n in numbers[:4]) or (0,)
+
+        return parts(latest) > parts(current)
+
+    def prompt_update(self, info: dict) -> None:
+        version = info.get("version", "")
+        url = info.get("url", "")
+        if not version or not url:
+            return
+        message = self.t("update_available_message").format(version=version)
+        if not messagebox.askyesno(self.t("update_available_title"), message, parent=self):
+            return
+        self.log_info(self.t("update_starting"))
+        self.start_update(url)
+
+    def start_update(self, url: str) -> None:
+        if not UPDATE_SCRIPT_PATH.exists():
+            self.log_error("Updater script was not found.")
+            return
+        update_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_Update_Launcher_"))
+        update_script = update_dir / UPDATE_SCRIPT_PATH.name
+        shutil.copy2(UPDATE_SCRIPT_PATH, update_script)
+        cmd = [
+            sys.executable,
+            str(update_script),
+            "--url",
+            url,
+            "--app-dir",
+            str(APP_DIR),
+            "--parent-pid",
+            str(os.getpid()),
+        ]
+        startupinfo = None
+        creationflags = 0
+        if os.name == "nt":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen(cmd, cwd=str(update_dir), startupinfo=startupinfo, creationflags=creationflags)
+        self.after(300, self.destroy)
+
     def open_about(self) -> None:
         webbrowser.open("https://github.com/mhqb365/AutoClearME")
 
@@ -443,7 +586,7 @@ class ClearMeGui(tk.Tk):
             cmd.extend(["--rgn", selected_rgn])
         if selected_fit:
             cmd.extend(["--fitc", selected_fit])
-        cmd.append("--try-fitc")
+        cmd.append("--try-fit")
         threading.Thread(target=self.run_command, args=(cmd, "DONE"), daemon=True).start()
 
     def run_command(self, cmd: list[str], done_tag: str) -> None:
@@ -489,7 +632,13 @@ class ClearMeGui(tk.Tk):
                 item = self.queue.get_nowait()
                 if isinstance(item, tuple):
                     tag = item[0]
-                    code = item[1]
+                    value = item[1]
+                    if tag == "UPDATE_AVAILABLE":
+                        self.prompt_update(value if isinstance(value, dict) else {})
+                        continue
+                    if tag == "UPDATE_CHECK_FAILED":
+                        continue
+                    code = int(value)
                     if tag == "ANALYZE_DONE":
                         self.handle_analyze_done(code)
                         continue

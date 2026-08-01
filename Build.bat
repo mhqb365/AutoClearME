@@ -20,9 +20,11 @@ if errorlevel 1 (
 
 copy /y "AutoClearME.py" "dist\" >nul
 copy /y "AutoClearME_GUI.py" "dist\" >nul
+copy /y "AutoClearME_Update.py" "dist\" >nul
 copy /y "Run.bat" "dist\" >nul
 copy /y "languages.json" "dist\" >nul
 copy /y "icon.ico" "dist\" >nul
+copy /y "VERSION" "dist\" >nul
 copy /y "config.example.json" "dist\" >nul
 if exist "README.md" copy /y "README.md" "dist\" >nul
 if exist "LICENSE" copy /y "LICENSE" "dist\" >nul
@@ -37,5 +39,15 @@ if errorlevel 1 (
 
 echo.
 echo Done: dist\
+set /p APP_VERSION=<"VERSION"
+set "RELEASE_ZIP=AutoClearME_%APP_VERSION%.zip"
+if exist "%RELEASE_ZIP%" del /q "%RELEASE_ZIP%"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\*' -DestinationPath '%RELEASE_ZIP%' -Force"
+if errorlevel 1 (
+  echo Failed to create %RELEASE_ZIP%.
+  pause
+  exit /b 1
+)
+echo Release ZIP: %RELEASE_ZIP%
 echo Users can run dist\Run.bat to start Auto Clear ME.
 pause
