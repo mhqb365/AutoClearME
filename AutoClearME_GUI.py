@@ -159,7 +159,7 @@ class ClearMeGui(tk.Tk):
             self.iconbitmap(str(ICON_PATH))
         self.geometry("660x620")
         self.minsize(660, 620)
-        self.queue: queue.Queue[str | tuple[str, int]] = queue.Queue()
+        self.queue: queue.Queue[str | tuple[str, object]] = queue.Queue()
         self.last_result = ""
         self.last_analyze_result = ""
         self.analyzed_signature: tuple[str, ...] = ()
@@ -428,14 +428,7 @@ class ClearMeGui(tk.Tk):
             "--parent-pid",
             str(os.getpid()),
         ]
-        startupinfo = None
-        creationflags = 0
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        subprocess.Popen(cmd, cwd=str(update_dir), startupinfo=startupinfo, creationflags=creationflags)
+        subprocess.Popen(cmd, cwd=str(update_dir), **self.hidden_process_kwargs())
         self.after(300, self.destroy)
 
     def open_about(self) -> None:
@@ -556,6 +549,9 @@ class ClearMeGui(tk.Tk):
         self.status_var.set(self.t("running"))
         self.last_result = ""
         self.log_info(self.t("starting_clear"))
+        threading.Thread(target=self.run_command, args=(self.build_clear_command(), "DONE"), daemon=True).start()
+
+    def build_clear_command(self) -> list[str]:
         cmd = self.engine_cmd("prepare", "--config", str(CONFIG_PATH))
         if self.mode_var.get() == "dual":
             cmd.extend([
@@ -569,6 +565,12 @@ class ClearMeGui(tk.Tk):
             ])
         else:
             cmd.extend(["--input", self.input_path("input")])
+        self.append_cached_detection(cmd)
+        self.append_selected_tools(cmd)
+        cmd.append("--try-fit")
+        return cmd
+
+    def append_cached_detection(self, cmd: list[str]) -> None:
         if self.analyzed_signature == self.current_input_signature() and self.analyzed_detected:
             cmd.extend([
                 "--detected-version",
@@ -580,25 +582,18 @@ class ClearMeGui(tk.Tk):
                 "--detected-data-state",
                 self.analyzed_detected.get("data_state", ""),
             ])
+
+    def append_selected_tools(self, cmd: list[str]) -> None:
         selected_rgn = self.rgn_choices.get(self.vars["rgn_choice"].get())
         selected_fit = self.fit_choices.get(self.vars["fit_choice"].get())
         if selected_rgn:
             cmd.extend(["--rgn", selected_rgn])
         if selected_fit:
             cmd.extend(["--fitc", selected_fit])
-        cmd.append("--try-fit")
-        threading.Thread(target=self.run_command, args=(cmd, "DONE"), daemon=True).start()
 
     def run_command(self, cmd: list[str], done_tag: str) -> None:
         if done_tag != "ANALYZE_DONE":
             self.queue.put("Command: " + " ".join(f'"{x}"' if " " in x else x for x in cmd) + "\n\n")
-        startupinfo = None
-        creationflags = 0
-        if os.name == "nt":
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         proc = subprocess.Popen(
             cmd,
             cwd=str(APP_DIR),
@@ -606,8 +601,7 @@ class ClearMeGui(tk.Tk):
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             errors="replace",
-            startupinfo=startupinfo,
-            creationflags=creationflags,
+            **self.hidden_process_kwargs(),
         )
         assert proc.stdout is not None
         for line in proc.stdout:
@@ -623,6 +617,17 @@ class ClearMeGui(tk.Tk):
     def engine_cmd(self, *args: str) -> list[str]:
         return [sys.executable, str(ENGINE_PATH), *args]
 
+    def hidden_process_kwargs(self) -> dict:
+        if os.name != "nt":
+            return {}
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        return {
+            "startupinfo": startupinfo,
+            "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        }
+
     def should_show_clear_line(self, line: str) -> bool:
         return bool(re.match(r"\[[0-5]/5\]", line.strip()))
 
@@ -631,43 +636,51 @@ class ClearMeGui(tk.Tk):
             while True:
                 item = self.queue.get_nowait()
                 if isinstance(item, tuple):
-                    tag = item[0]
-                    value = item[1]
-                    if tag == "UPDATE_AVAILABLE":
-                        self.prompt_update(value if isinstance(value, dict) else {})
-                        continue
-                    if tag == "UPDATE_CHECK_FAILED":
-                        continue
-                    code = int(value)
-                    if tag == "ANALYZE_DONE":
-                        self.handle_analyze_done(code)
-                        continue
-                    self.clear_button.configure(state="normal")
-                    if code == 0:
-                        if '"status": "cleared"' in self.last_result:
-                            self.status_var.set(self.t("clear_complete"))
-                            outputs = self.cleared_outputs()
-                            location = str(outputs[0].parent) if outputs else "next to the input"
-                            if len(outputs) > 1:
-                                self.log_info(f"Dual BIOS clear and split complete. Output files were saved to: {location}")
-                            else:
-                                self.log_info(f"Clear complete. Output file was saved to: {location}")
-                            self.open_output_location(outputs)
-                        else:
-                            self.status_var.set(self.t("job_prepared"))
-                            reason = self.extract_failure_reason()
-                            if reason:
-                                self.log_warn(self.t("automatic_clear_failed") + "\n" + reason)
-                            else:
-                                self.log_warn("Job prepared. Open MANUAL_STEPS.txt in the job folder and finish the FIT build.")
-                    else:
-                        self.status_var.set(self.t("error"))
-                        self.log_error(f"Stopped with exit code {code}. See the log above.")
+                    self.handle_queue_event(item)
                 else:
                     self.write_log(item)
         except queue.Empty:
             pass
         self.after(150, self.drain_queue)
+
+    def handle_queue_event(self, item: tuple[str, object]) -> None:
+        tag, value = item
+        if tag == "UPDATE_AVAILABLE":
+            self.prompt_update(value if isinstance(value, dict) else {})
+            return
+        if tag == "UPDATE_CHECK_FAILED":
+            return
+        code = int(value)
+        if tag == "ANALYZE_DONE":
+            self.handle_analyze_done(code)
+            return
+        self.handle_clear_done(code)
+
+    def handle_clear_done(self, code: int) -> None:
+        self.clear_button.configure(state="normal")
+        if code != 0:
+            self.status_var.set(self.t("error"))
+            self.log_error(f"Stopped with exit code {code}. See the log above.")
+            return
+        if '"status": "cleared"' in self.last_result:
+            self.handle_clear_success()
+            return
+        self.status_var.set(self.t("job_prepared"))
+        reason = self.extract_failure_reason()
+        if reason:
+            self.log_warn(self.t("automatic_clear_failed") + "\n" + reason)
+        else:
+            self.log_warn("Job prepared. Open MANUAL_STEPS.txt in the job folder and finish the FIT build.")
+
+    def handle_clear_success(self) -> None:
+        self.status_var.set(self.t("clear_complete"))
+        outputs = self.cleared_outputs()
+        location = str(outputs[0].parent) if outputs else "next to the input"
+        if len(outputs) > 1:
+            self.log_info(f"Dual BIOS clear and split complete. Output files were saved to: {location}")
+        else:
+            self.log_info(f"Clear complete. Output file was saved to: {location}")
+        self.open_output_location(outputs)
 
     def handle_analyze_done(self, code: int) -> None:
         if code != 0:

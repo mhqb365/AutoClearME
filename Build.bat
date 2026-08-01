@@ -40,14 +40,30 @@ if errorlevel 1 (
 echo.
 echo Done: dist\
 set /p APP_VERSION=<"VERSION"
+set "RELEASE_ROOT=AutoClearME_%APP_VERSION%"
 set "RELEASE_ZIP=AutoClearME_%APP_VERSION%.zip"
+if exist "release" rmdir /s /q "release"
+mkdir "release\%RELEASE_ROOT%"
+if errorlevel 1 (
+  echo Failed to create release staging folder.
+  pause
+  exit /b 1
+)
+xcopy "dist" "release\%RELEASE_ROOT%\" /e /i /y >nul
+if errorlevel 1 (
+  echo Failed to copy dist into release staging folder.
+  pause
+  exit /b 1
+)
 if exist "%RELEASE_ZIP%" del /q "%RELEASE_ZIP%"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'dist\*' -DestinationPath '%RELEASE_ZIP%' -Force"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Compress-Archive -Path 'release\%RELEASE_ROOT%' -DestinationPath '%RELEASE_ZIP%' -Force"
 if errorlevel 1 (
   echo Failed to create %RELEASE_ZIP%.
   pause
   exit /b 1
 )
+rmdir /s /q "release"
 echo Release ZIP: %RELEASE_ZIP%
-echo Users can run dist\Run.bat to start Auto Clear ME.
+echo ZIP extracts to %RELEASE_ROOT%\.
+echo Users can run %RELEASE_ROOT%\Run.bat to start Auto Clear ME.
 pause

@@ -54,6 +54,24 @@ class FirmwareInfo:
     raw: str = ""
 
 
+@dataclass
+class PrepareInput:
+    image: Path
+    out_root: Path
+    temp_merged_input: Path | None = None
+    merged_chip1_size: int | None = None
+    dual_file1_original: Path | None = None
+    dual_file2_original: Path | None = None
+
+
+@dataclass
+class BuildResult:
+    published_output: Path | None
+    split_outputs: list[str]
+    fitc_runs: list[dict]
+    fitc: Path | None
+
+
 def run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
     startupinfo = None
     creationflags = 0
@@ -125,6 +143,9 @@ def parse_mea_output(text: str) -> FirmwareInfo:
         clean = re.sub(r"\x1b\[[0-9;]*m", "", line)
         clean = clean.replace(chr(0x2551), "|").replace(chr(0x2502), "|").strip(" |")
         cells = [cell.strip() for cell in clean.split("|") if cell.strip()]
+        if len(cells) < 2 and ":" in clean:
+            key, value = clean.split(":", 1)
+            cells = [key.strip(), value.strip()]
         if len(cells) >= 2:
             key = cells[0].lower()
             value = cells[-1].strip()
@@ -141,7 +162,7 @@ def parse_mea_output(text: str) -> FirmwareInfo:
                 info.chipset = value
             elif key in {"fit", "flash image tool"} and not info.fit:
                 info.fit = value
-            elif key in {"file system state", "data state"} and not info.data_state:
+            elif key in {"file system", "file system state", "data state"} and not info.data_state:
                 info.data_state = value
         lower = clean.lower()
         if "version" in lower and not info.version:
@@ -766,17 +787,9 @@ def pick_arg(args: argparse.Namespace, config: dict, attr: str, key: str | None 
     return config.get(key or attr)
 
 
-def command_prepare(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    repo_value = pick_arg(args, config, "repo", "csme_repo")
-    fitc_value = pick_arg(args, config, "fitc_root")
-    out_value = pick_arg(args, config, "out")
-    mea_value = pick_arg(args, config, "mea")
+def require_config_values(**values: str | None) -> None:
     missing = [
-        name for name, value in {
-            "csme_repo": repo_value,
-            "fitc_root": fitc_value,
-        }.items()
+        name for name, value in values.items()
         if not value
     ]
     if missing:
@@ -785,34 +798,40 @@ def command_prepare(args: argparse.Namespace) -> int:
             + ", ".join(missing)
             + ". Edit config.json or pass them as command-line arguments."
         )
-    repo = Path(repo_value).resolve()
-    fitc_root = Path(fitc_value).resolve()
-    temp_merged_input = None
-    merged_chip1_size = None
-    dual_file1_original = None
-    dual_file2_original = None
+
+
+def prepare_input(args: argparse.Namespace, out_value: str | None) -> PrepareInput:
     if args.dual_file1 and args.dual_file2:
         file1 = Path(args.dual_file1).resolve()
         file2 = Path(args.dual_file2).resolve()
         out_root = Path(out_value).resolve() if out_value else file1.parent
         out_root.mkdir(parents=True, exist_ok=True)
-        dual_file1_original = file1
-        dual_file2_original = file2
         temp_merged_input, merged_chip1_size = merge_dual_inputs(file1, file2, out_root)
-        image = temp_merged_input
         print(f"[0/5] Merged Dual BIOS files in user order: {file1} + {file2}", flush=True)
-    else:
-        if not args.input:
-            raise ValueError("Missing --input, or use --dual-file1 and --dual-file2 for Dual BIOS merge.")
-        image = Path(args.input).resolve()
-        out_root = Path(out_value).resolve() if out_value else image.parent
-        out_root.mkdir(parents=True, exist_ok=True)
+        return PrepareInput(
+            image=temp_merged_input,
+            out_root=out_root,
+            temp_merged_input=temp_merged_input,
+            merged_chip1_size=merged_chip1_size,
+            dual_file1_original=file1,
+            dual_file2_original=file2,
+        )
+    if not args.input:
+        raise ValueError("Missing --input, or use --dual-file1 and --dual-file2 for Dual BIOS merge.")
+    image = Path(args.input).resolve()
+    out_root = Path(out_value).resolve() if out_value else image.parent
+    out_root.mkdir(parents=True, exist_ok=True)
+    return PrepareInput(image=image, out_root=out_root)
 
+
+def resolve_mea(mea_value: str | None, repo: Path, fitc_root: Path) -> Path | None:
     configured_mea = Path(mea_value).resolve() if mea_value else None
     search_roots = [configured_mea.parent] if configured_mea else [repo.parent, fitc_root.parent, Path.cwd()]
-    mea = configured_mea if configured_mea and configured_mea.exists() else find_me_analyzer(search_roots)
+    return configured_mea if configured_mea and configured_mea.exists() else find_me_analyzer(search_roots)
+
+
+def cached_firmware_info(args: argparse.Namespace) -> FirmwareInfo | None:
     if args.detected_version:
-        print(f"[1/5] Using cached ME Analyzer result: {image}", flush=True)
         info = FirmwareInfo(
             version=args.detected_version,
             sku=args.detected_sku or "",
@@ -823,37 +842,130 @@ def command_prepare(args: argparse.Namespace) -> int:
         if version_match:
             info.major = int(version_match.group("major"))
             info.minor = int(version_match.group("minor"))
-    else:
-        print(f"[1/5] Analyzing input with ME Analyzer: {image}", flush=True)
-        if not mea:
-            raise FileNotFoundError("ME Analyzer not found. Pass --mea path/to/MEA.py or MEA.exe.")
-        info = analyze_with_mea(mea, image)
-    if info.major is None or info.major < 11 or info.major > 20:
-        raise RuntimeError(f"Input CSME major version must be 11-20, got: {info.version or 'unknown'}")
+        return info
+    return None
 
-    print(f"[2/5] Detected CSME {info.version}, SKU: {display_sku(info.sku) or 'unknown'}", flush=True)
+
+def prepare_firmware_info(args: argparse.Namespace, image: Path, mea: Path | None) -> FirmwareInfo:
+    info = cached_firmware_info(args)
+    if info:
+        print(f"[1/5] Using cached ME Analyzer result: {image}", flush=True)
+        return info
+    print(f"[1/5] Analyzing input with ME Analyzer: {image}", flush=True)
+    if not mea:
+        raise FileNotFoundError("ME Analyzer not found. Pass --mea path/to/MEA.py or MEA.exe.")
+    return analyze_with_mea(mea, image)
+
+
+def matching_rgn(args: argparse.Namespace, repo: Path, info: FirmwareInfo) -> tuple[Path, list[dict]]:
     print(f"[3/5] Searching matching PRD_RGN in: {repo}", flush=True)
     if args.rgn:
         rgn = Path(args.rgn).resolve()
         if not rgn.exists():
             raise FileNotFoundError(f"Selected ME Region was not found: {rgn}")
-        ranked = [{"path": str(rgn), "score": 999, "reason": "user-selected"}]
-    else:
-        rgn, ranked = find_best_rgn(repo, info)
-    print(f"[4/5] Selected RGN: {rgn}", flush=True)
-    fitc_candidates = [Path(item["path"]) for item in find_ranked_fitc_candidates(fitc_root, info)]
+        return rgn, [{"path": str(rgn), "score": 999, "reason": "user-selected"}]
+    return find_best_rgn(repo, info)
+
+
+def ranked_fit_candidates(args: argparse.Namespace, fitc_root: Path, info: FirmwareInfo) -> list[Path]:
+    candidates = [Path(item["path"]) for item in find_ranked_fitc_candidates(fitc_root, info)]
     if args.fitc:
         selected_fitc = Path(args.fitc).resolve()
-        fitc_candidates = [selected_fitc, *[p for p in fitc_candidates if p.resolve() != selected_fitc]]
-    fitc_candidates = [p for p in fitc_candidates if p.exists()]
+        candidates = [selected_fitc, *[p for p in candidates if p.resolve() != selected_fitc]]
+    return [p for p in candidates if p.exists()]
+
+
+def split_cleared_output(
+    args: argparse.Namespace,
+    published_output: Path,
+    prep: PrepareInput,
+) -> list[str]:
+    chip1_size = (
+        prep.merged_chip1_size
+        if prep.merged_chip1_size
+        else infer_chip1_size(published_output.stat().st_size)
+        if (args.chip1_size or "").strip().lower() in {"", "auto"}
+        else parse_size(args.chip1_size)
+    )
+    return [
+        str(p)
+        for p in split_dual_output(
+            published_output,
+            prep.image,
+            chip1_size,
+            keep_merged=False,
+            file1_original=prep.dual_file1_original,
+            file2_original=prep.dual_file2_original,
+        )
+    ]
+
+
+def try_fit_build(
+    args: argparse.Namespace,
+    prep: PrepareInput,
+    workdir: Path,
+    input_copy: Path,
+    rgn_copy: Path,
+    fitc_candidates: list[Path],
+) -> BuildResult:
+    fitc = fitc_candidates[0] if fitc_candidates else None
+    published_output = None
+    split_outputs: list[str] = []
+    fitc_runs: list[dict] = []
+    if not args.try_fitc or not fitc:
+        print(f"[5/5] Job prepared. FIT CLI build was not requested or FIT was not found.", flush=True)
+        return BuildResult(None, [], [], fitc)
+
+    for idx, candidate_fitc in enumerate(fitc_candidates, 1):
+        print(f"[5/5] Trying FIT CLI build ({idx}/{len(fitc_candidates)}): {fitc_label(candidate_fitc)}", flush=True)
+        work_output = clearme_output_name(prep.image, workdir)
+        fitc_result = maybe_run_fitc(candidate_fitc, workdir, input_copy, rgn_copy, work_output)
+        fitc_runs.append(fitc_result)
+        (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
+        built = work_output if work_output.exists() else find_built_image(workdir, candidate_fitc)
+        if not (fitc_succeeded(fitc_result, work_output) or built):
+            continue
+        fitc = candidate_fitc
+        published_output = publish_clearme_output(built, prep.image, prep.out_root)
+        if args.dual_split:
+            split_outputs = split_cleared_output(args, published_output, prep)
+            published_output = None
+        break
+    return BuildResult(published_output, split_outputs, fitc_runs, fitc)
+
+
+def remove_temp_input(prep: PrepareInput) -> None:
+    if prep.temp_merged_input and prep.temp_merged_input.exists():
+        prep.temp_merged_input.unlink()
+
+
+def command_prepare(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    repo_value = pick_arg(args, config, "repo", "csme_repo")
+    fitc_value = pick_arg(args, config, "fitc_root")
+    out_value = pick_arg(args, config, "out")
+    mea_value = pick_arg(args, config, "mea")
+    require_config_values(csme_repo=repo_value, fitc_root=fitc_value)
+    repo = Path(repo_value).resolve()
+    fitc_root = Path(fitc_value).resolve()
+    prep = prepare_input(args, out_value)
+    mea = resolve_mea(mea_value, repo, fitc_root)
+    info = prepare_firmware_info(args, prep.image, mea)
+    if info.major is None or info.major < 11 or info.major > 20:
+        raise RuntimeError(f"Input CSME major version must be 11-20, got: {info.version or 'unknown'}")
+
+    print(f"[2/5] Detected CSME {info.version}, SKU: {display_sku(info.sku) or 'unknown'}", flush=True)
+    rgn, ranked = matching_rgn(args, repo, info)
+    print(f"[4/5] Selected RGN: {rgn}", flush=True)
+    fitc_candidates = ranked_fit_candidates(args, fitc_root, info)
     fitc = fitc_candidates[0] if fitc_candidates else None
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    workdir = out_root / f"{image.stem}_clearme_{stamp}"
+    workdir = prep.out_root / f"{prep.image.stem}_clearme_{stamp}"
     workdir.mkdir(parents=True, exist_ok=False)
-    input_copy, rgn_copy = copy_inputs(workdir, image, rgn)
+    input_copy, rgn_copy = copy_inputs(workdir, prep.image, rgn)
 
     manifest = {
-        "input": str(image),
+        "input": str(prep.image),
         "workdir": str(workdir),
         "input_copy": str(input_copy),
         "rgn_copy": str(rgn_copy),
@@ -866,63 +978,26 @@ def command_prepare(args: argparse.Namespace) -> int:
     (workdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     write_manual_steps(workdir, fitc)
 
-    published_output = None
-    split_outputs = []
-    fitc_runs = []
-    if args.try_fitc and fitc:
-        for idx, candidate_fitc in enumerate(fitc_candidates, 1):
-            print(f"[5/5] Trying FIT CLI build ({idx}/{len(fitc_candidates)}): {fitc_label(candidate_fitc)}", flush=True)
-            work_output = clearme_output_name(image, workdir)
-            fitc_result = maybe_run_fitc(candidate_fitc, workdir, input_copy, rgn_copy, work_output)
-            fitc_runs.append(fitc_result)
-            (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
-            built = work_output if work_output.exists() else find_built_image(workdir, candidate_fitc)
-            if fitc_succeeded(fitc_result, work_output) or built:
-                fitc = candidate_fitc
-                published_output = publish_clearme_output(built, image, out_root)
-                if args.dual_split:
-                    chip1_size = (
-                        merged_chip1_size
-                        if merged_chip1_size
-                        else infer_chip1_size(published_output.stat().st_size)
-                        if (args.chip1_size or "").strip().lower() in {"", "auto"}
-                        else parse_size(args.chip1_size)
-                    )
-                    split_outputs = [
-                        str(p)
-                        for p in split_dual_output(
-                            published_output,
-                            image,
-                            chip1_size,
-                            keep_merged=False,
-                            file1_original=dual_file1_original,
-                            file2_original=dual_file2_original,
-                        )
-                    ]
-                    published_output = None
-                manifest["fitc"] = str(fitc)
-                manifest["published_output"] = str(published_output) if published_output else ""
-                manifest["split_outputs"] = split_outputs
-                (workdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-                cleanup_job(workdir)
-                if temp_merged_input and temp_merged_input.exists():
-                    temp_merged_input.unlink()
-                break
-    else:
-        print(f"[5/5] Job prepared. FIT CLI build was not requested or FIT was not found.", flush=True)
+    result = try_fit_build(args, prep, workdir, input_copy, rgn_copy, fitc_candidates)
+    if result.published_output or result.split_outputs:
+        manifest["fitc"] = str(result.fitc)
+        manifest["published_output"] = str(result.published_output) if result.published_output else ""
+        manifest["split_outputs"] = result.split_outputs
+        (workdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        cleanup_job(workdir)
+        remove_temp_input(prep)
 
-    status = "cleared" if published_output or split_outputs else "prepared"
-    failure_reason = "" if status == "cleared" else summarize_fitc_failure(fitc_runs)
+    status = "cleared" if result.published_output or result.split_outputs else "prepared"
+    failure_reason = "" if status == "cleared" else summarize_fitc_failure(result.fitc_runs)
     if status != "cleared":
         cleanup_job(workdir)
-        if temp_merged_input and temp_merged_input.exists():
-            temp_merged_input.unlink()
+        remove_temp_input(prep)
     print(json.dumps({
         "status": status,
         "workdir": str(workdir),
         "selected_rgn": str(rgn),
-        "published_output": str(published_output) if published_output else "",
-        "split_outputs": split_outputs,
+        "published_output": str(result.published_output) if result.published_output else "",
+        "split_outputs": result.split_outputs,
         "failure_reason": failure_reason,
         "next_step": "" if status == "cleared" else "Try another ME Region/FIT selection or inspect the error details above.",
     }, indent=2))

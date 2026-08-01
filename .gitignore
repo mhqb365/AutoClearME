@@ -11,6 +11,7 @@ __pycache__/
 dist/
 build/
 *.spec
+AutoClearME_*.zip
 
 # Logs and generated job folders
 *.log
