@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ctypes
 import os
 import shutil
 import subprocess
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -28,18 +30,42 @@ REQUIRED_FILES = [
 def wait_for_parent(pid: int) -> None:
     if pid <= 0 or os.name != "nt":
         return
-    for _ in range(120):
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            return
-        time.sleep(0.5)
+    print("Waiting for Auto Clear ME to close...", flush=True)
+    synchronize = 0x00100000
+    handle = ctypes.windll.kernel32.OpenProcess(synchronize, False, pid)
+    if not handle:
+        return
+    try:
+        ctypes.windll.kernel32.WaitForSingleObject(handle, 60_000)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
 
 
 def download(url: str, target: Path) -> None:
-    request = urllib.request.Request(url, headers={"User-Agent": "AutoClearME-Updater"})
-    with urllib.request.urlopen(request, timeout=60) as response, target.open("wb") as output:
-        shutil.copyfileobj(response, output)
+    print(f"Downloading: {url}", flush=True)
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "AutoClearME-Updater/1.0",
+                    "Accept": "application/octet-stream, application/zip, */*",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=90) as response, target.open("wb") as output:
+                shutil.copyfileobj(response, output)
+            print(f"Downloaded: {target}", flush=True)
+            return
+        except (OSError, urllib.error.URLError) as exc:
+            last_error = exc
+            print(f"Download attempt {attempt}/3 failed: {exc}", flush=True)
+            if attempt < 3:
+                time.sleep(2 * attempt)
+    raise RuntimeError(
+        "Could not download the release ZIP. Check your internet connection, "
+        "or download the ZIP manually from GitHub Releases."
+    ) from last_error
 
 
 def find_payload_root(extract_dir: Path) -> Path:
@@ -51,12 +77,14 @@ def find_payload_root(extract_dir: Path) -> Path:
 
 
 def validate_payload(payload: Path) -> None:
+    print(f"Validating package: {payload}", flush=True)
     missing = [name for name in REQUIRED_FILES if not (payload / name).exists()]
     if missing:
         raise RuntimeError("Release ZIP is missing required files: " + ", ".join(missing))
 
 
 def replace_app(payload: Path, app_dir: Path) -> None:
+    print(f"Replacing app files in: {app_dir}", flush=True)
     for item in app_dir.iterdir():
         if item.name in KEEP_FILES:
             continue
@@ -75,11 +103,13 @@ def replace_app(payload: Path, app_dir: Path) -> None:
             shutil.copytree(item, target, dirs_exist_ok=True)
         else:
             shutil.copy2(item, target)
+    print("App files replaced.", flush=True)
 
 
 def relaunch(app_dir: Path) -> None:
     launcher = app_dir / "Run.bat"
     if launcher.exists():
+        print("Restarting Auto Clear ME...", flush=True)
         subprocess.Popen(["cmd", "/c", "start", "", str(launcher)], cwd=str(app_dir), shell=False)
 
 
@@ -100,6 +130,7 @@ def main() -> int:
         archive = tmp_dir / "release.zip"
         extract_dir = tmp_dir / "extract"
         download(args.url, archive)
+        print("Extracting package...", flush=True)
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(extract_dir)
         payload = find_payload_root(extract_dir)

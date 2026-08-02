@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from AutoClearME import FirmwareInfo, display_sku, parse_mea_output, score_rgn, sku_matches
+from AutoClearME_GUI import format_version, version_parts
 
 
 MEA_SAMPLE = """
@@ -39,6 +40,9 @@ def main() -> int:
     old_rgn_score, _ = score_rgn(input_info, Path("14.1.53.1649_COR_H_A_PRD_RGN.bin"))
     exact_extr_score, _ = score_rgn(input_info, Path("14.1.70.2228_COR_H_A_PRD_EXTR-Y_B430BC4A.bin"))
     assert exact_extr_score > old_rgn_score
+    assert version_parts("v1.01") == (1, 0, 1)
+    assert version_parts("v1.0.1") == (1, 0, 1)
+    assert format_version("v1.01") == "1.0.1"
     print("core smoke checks passed")
     return 0
 

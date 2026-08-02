@@ -120,15 +120,27 @@ FALLBACK_TEXT = {
 }
 
 
+def version_parts(value: str) -> tuple[int, int, int]:
+    raw = str(value or "").strip().lstrip("vV")
+    numbers = re.findall(r"\d+", raw)
+    if len(numbers) == 2 and len(numbers[1]) == 2 and numbers[1].startswith("0"):
+        numbers = [numbers[0], numbers[1][0], numbers[1][1]]
+    parts = [int(n) for n in numbers[:3]]
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+
+def format_version(value: str) -> str:
+    return ".".join(str(part) for part in version_parts(value))
+
+
 def app_version() -> str:
     try:
         raw = VERSION_PATH.read_text(encoding="utf-8").strip()
     except Exception:
         raw = "0.0.0"
-    numbers = re.findall(r"\d+", raw)
-    while len(numbers) < 3:
-        numbers.append("0")
-    return ".".join(numbers[:3])
+    return format_version(raw)
 
 
 def load_language_bundle() -> tuple[dict[str, dict[str, str]], dict[str, str]]:
@@ -377,7 +389,7 @@ class ClearMeGui(tk.Tk):
             latest = str(payload.get("tag_name") or payload.get("name") or "").strip()
             url = self.release_zip_url(payload)
             if latest and url and self.version_newer(latest, self.current_version()):
-                self.queue.put(("UPDATE_AVAILABLE", {"version": latest, "url": url}))
+                self.queue.put(("UPDATE_AVAILABLE", {"version": format_version(latest), "url": url}))
         except Exception as exc:
             self.queue.put(("UPDATE_CHECK_FAILED", str(exc)))
 
@@ -397,11 +409,7 @@ class ClearMeGui(tk.Tk):
         return ""
 
     def version_newer(self, latest: str, current: str) -> bool:
-        def parts(value: str) -> tuple[int, ...]:
-            numbers = re.findall(r"\d+", value)
-            return tuple(int(n) for n in numbers[:4]) or (0,)
-
-        return parts(latest) > parts(current)
+        return version_parts(latest) > version_parts(current)
 
     def prompt_update(self, info: dict) -> None:
         version = info.get("version", "")
@@ -421,17 +429,25 @@ class ClearMeGui(tk.Tk):
         update_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_Update_Launcher_"))
         update_script = update_dir / UPDATE_SCRIPT_PATH.name
         shutil.copy2(UPDATE_SCRIPT_PATH, update_script)
-        cmd = [
-            sys.executable,
-            str(update_script),
-            "--url",
-            url,
-            "--app-dir",
-            str(APP_DIR),
-            "--parent-pid",
-            str(os.getpid()),
-        ]
-        subprocess.Popen(cmd, cwd=str(update_dir), **self.hidden_process_kwargs())
+        launcher = update_dir / "RunUpdate.bat"
+        launcher.write_text(
+            "\n".join([
+                "@echo off",
+                "title Auto Clear ME Update",
+                "echo Updating Auto Clear ME...",
+                f"\"{self.console_python()}\" \"{update_script}\" --url \"{url}\" --app-dir \"{APP_DIR}\" --parent-pid {os.getpid()}",
+                "if errorlevel 1 (",
+                "  echo.",
+                "  echo Update failed. Please copy the error above and report it.",
+                "  pause",
+                "  exit /b 1",
+                ")",
+                "exit /b 0",
+                "",
+            ]),
+            encoding="utf-8",
+        )
+        subprocess.Popen(["cmd", "/c", "start", "", str(launcher)], cwd=str(update_dir))
         self.after(300, self.destroy)
 
     def open_about(self) -> None:
@@ -642,6 +658,14 @@ class ClearMeGui(tk.Tk):
 
     def engine_cmd(self, *args: str) -> list[str]:
         return [sys.executable, str(ENGINE_PATH), *args]
+
+    def console_python(self) -> str:
+        exe = Path(sys.executable)
+        if exe.name.lower() == "pythonw.exe":
+            python = exe.with_name("python.exe")
+            if python.exists():
+                return str(python)
+        return sys.executable
 
     def hidden_process_kwargs(self) -> dict:
         if os.name != "nt":
