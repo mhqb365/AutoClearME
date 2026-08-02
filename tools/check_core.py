@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import display_sku, parse_mea_output, sku_matches
+from AutoClearME import FirmwareInfo, display_sku, parse_mea_output, score_rgn, sku_matches
 
 
 MEA_SAMPLE = """
@@ -35,6 +35,10 @@ def main() -> int:
     assert info.data_state == "Initialized"
     assert display_sku("consumer lp") == "Consumer LP"
     assert sku_matches("Consumer LP", "CON_LP")
+    input_info = FirmwareInfo(version="14.1.70.2228", major=14, minor=1, sku="corporate h")
+    old_rgn_score, _ = score_rgn(input_info, Path("14.1.53.1649_COR_H_A_PRD_RGN.bin"))
+    exact_extr_score, _ = score_rgn(input_info, Path("14.1.70.2228_COR_H_A_PRD_EXTR-Y_B430BC4A.bin"))
+    assert exact_extr_score > old_rgn_score
     print("core smoke checks passed")
     return 0
 

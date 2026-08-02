@@ -362,15 +362,20 @@ def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
         reasons.append("sku")
     else:
         return 0, "missing-input-sku"
-    if "prd" in candidate.name.lower():
+    name_lower = candidate.name.lower()
+    if "prd" in name_lower:
         score += 5
-    if "rgn" in candidate.name.lower():
-        score += 20
+    if "rgn" in name_lower:
+        score += 10
         reasons.append("rgn")
-    iv = version_tuple(input_info.version)
     cv = version_tuple(c.version)
+    iv = version_tuple(input_info.version)
+    if cv == iv:
+        score += 120
+        reasons.append("exact-version")
+        return score, ",".join(reasons)
     distance = abs(version_rank(c.version) - version_rank(input_info.version))
-    score += max(0, 100 - distance / 10_000)
+    score += max(0, 80 - distance / 10_000)
     reasons.append("nearest-version")
     return score, ",".join(reasons)
 
@@ -378,7 +383,10 @@ def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
 def find_best_rgn(repo: Path, input_info: FirmwareInfo) -> tuple[Path, list[dict]]:
     candidates = [
         p for p in repo.rglob("*")
-        if p.is_file() and p.suffix.lower() in {".bin", ".rgn"} and "prd" in p.name.lower() and "rgn" in p.name.lower()
+        if p.is_file()
+        and p.suffix.lower() in {".bin", ".rgn"}
+        and "prd" in p.name.lower()
+        and ("rgn" in p.name.lower() or "extr" in p.name.lower())
     ]
     ranked = []
     for p in candidates:

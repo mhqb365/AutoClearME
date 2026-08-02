@@ -290,7 +290,10 @@ class ClearMeGui(tk.Tk):
         label.grid(row=row, column=0, sticky="w", pady=4)
         self.translatable_labels.append((label, label_key))
         combo = ttk.Combobox(parent, textvariable=self.vars[key], state="readonly", style="Control.TCombobox")
-        combo.grid(row=row, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=3)
+        combo.grid(row=row, column=1, columnspan=2, sticky="ew", padx=(8, 6), pady=3)
+        browse = ttk.Button(parent, command=lambda: self.pick_choice_file(key), style="Control.TButton")
+        browse.grid(row=row, column=3, sticky="ew", pady=3)
+        self.browse_buttons.append(browse)
         if key == "rgn_choice":
             self.single_rgn_combo = combo if "single_rgn_combo" not in self.__dict__ else self.single_rgn_combo
             self.dual_rgn_combo = combo
@@ -449,6 +452,29 @@ class ClearMeGui(tk.Tk):
             self.input_paths[key] = path
             self.vars[key].set(Path(path).name)
             self.start_analyze_selected()
+
+    def pick_choice_file(self, key: str) -> None:
+        if key == "rgn_choice":
+            initial = self.vars["csme_repo"].get() or str(Path.home())
+            title = self.t("me_region")
+            filetypes = [("ME Region", "*.bin *.rgn"), ("All files", "*.*")]
+            choices = self.rgn_choices
+            combos = (self.single_rgn_combo, self.dual_rgn_combo)
+        else:
+            initial = self.vars["fitc_root"].get() or str(Path.home())
+            title = self.t("fit")
+            filetypes = [("FIT executable", "*.exe"), ("All files", "*.*")]
+            choices = self.fit_choices
+            combos = (self.single_fit_combo, self.dual_fit_combo)
+        path = filedialog.askopenfilename(title=title, initialdir=initial, filetypes=filetypes)
+        if not path:
+            return
+        label = Path(path).name
+        choices[label] = path
+        values = [label, *[value for value in choices if value != label]]
+        for combo in combos:
+            combo.configure(values=values)
+        self.vars[key].set(label)
 
     def clear_path(self, key: str) -> None:
         self.vars[key].set("")
