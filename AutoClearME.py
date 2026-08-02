@@ -38,6 +38,7 @@ VERSION_RE = re.compile(r"(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<hotfix>\d+))?(?
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = APP_DIR / "config.json"
 LOCAL_MEA = APP_DIR / "MEA" / "MEA.py"
+MEA_PYTHON_PACKAGES = ("colorama", "crccheck", "pltable")
 
 
 @dataclass
@@ -113,7 +114,7 @@ def find_me_analyzer(search_roots: list[Path]) -> Path | None:
 
 def analyze_with_mea(mea: Path, image: Path) -> FirmwareInfo:
     if mea.suffix.lower() == ".py":
-        ensure_colorama_for_mea()
+        ensure_mea_dependencies()
         cmd = [sys.executable, str(mea), "-skip", "-exit", str(image)]
     else:
         cmd = [str(mea), "-skip", "-exit", str(image)]
@@ -125,15 +126,17 @@ def analyze_with_mea(mea: Path, image: Path) -> FirmwareInfo:
     return info
 
 
-def ensure_colorama_for_mea() -> None:
-    if importlib.util.find_spec("colorama"):
+def ensure_mea_dependencies() -> None:
+    missing = [package for package in MEA_PYTHON_PACKAGES if not importlib.util.find_spec(package)]
+    if not missing:
         return
-    print("[MEA] Python package colorama is missing. Installing it for ME Analyzer...", flush=True)
-    code, out = run([sys.executable, "-m", "pip", "install", "colorama"])
+    print("[MEA] Installing missing Python packages for ME Analyzer: " + ", ".join(missing), flush=True)
+    code, out = run([sys.executable, "-m", "pip", "install", *missing])
     if code != 0:
+        install_cmd = f"{sys.executable} -m pip install " + " ".join(missing)
         raise RuntimeError(
-            "MEA.py needs the Python package colorama, but automatic installation failed.\n"
-            f"Run this command manually:\n{sys.executable} -m pip install colorama\n\n{out}"
+            "MEA.py needs extra Python packages, but automatic installation failed.\n"
+            f"Run this command manually:\n{install_cmd}\n\n{out}"
         )
 
 

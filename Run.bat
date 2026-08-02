@@ -56,5 +56,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Checking required Python packages...
+%PYTHON_CMD% -c "import colorama, crccheck, pltable"
+if errorlevel 1 (
+  echo Required Python packages are still missing.
+  echo Try running this command manually:
+  echo %PYTHON_CMD% -m pip install --upgrade colorama crccheck pltable
+  pause
+  exit /b 1
+)
+
 start "" %PYTHONW_CMD% "%~dp0AutoClearME_GUI.py"
 exit /b 0
