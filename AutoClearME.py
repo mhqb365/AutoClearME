@@ -422,27 +422,36 @@ def find_fitc(fitc_root: Path, major: int | None) -> Path | None:
 
 def score_fitc(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
     major, minor, _hotfix, _build = version_tuple(str(candidate))
+    target_version = input_info.fit or input_info.version
+    target_major, target_minor, _target_hotfix, _target_build = version_tuple(target_version)
     score = 0
     reasons = []
-    if input_info.major is not None:
-        if major != input_info.major:
+    if target_major:
+        if major != target_major:
             return 0, "major-mismatch"
         score += 150
         reasons.append("major")
-    if input_info.minor is not None and minor == input_info.minor:
+    if target_minor and minor == target_minor:
         score += 80
         reasons.append("minor")
-    distance = abs(version_rank(str(candidate)) - version_rank(input_info.version))
+    candidate_version = version_tuple(str(candidate))
+    if target_version and candidate_version == version_tuple(target_version):
+        score += 500
+        reasons.append("exact-fit-version")
+        return score, ",".join(reasons)
+    distance = abs(version_rank(str(candidate)) - version_rank(target_version))
     score += max(0, 100 - distance / 10_000)
-    reasons.append("nearest-version")
+    reasons.append("nearest-fit-version" if input_info.fit else "nearest-version")
     return score, ",".join(reasons)
 
 
 def find_ranked_fitc_candidates(fitc_root: Path, input_info: FirmwareInfo) -> list[dict]:
     ranked = []
-    candidates = find_fitc_candidates(fitc_root, input_info.major)
-    if input_info.minor is not None:
-        same_minor = [path for path in candidates if version_tuple(str(path))[1] == input_info.minor]
+    target_version = input_info.fit or input_info.version
+    target_major, target_minor, _target_hotfix, _target_build = version_tuple(target_version)
+    candidates = find_fitc_candidates(fitc_root, target_major or input_info.major)
+    if target_minor:
+        same_minor = [path for path in candidates if version_tuple(str(path))[1] == target_minor]
         if same_minor:
             candidates = same_minor
     for path in candidates:
