@@ -197,8 +197,15 @@ class ClearMeGui(tk.Tk):
         self.control_row_height = 30
         self._build_ui()
         self.load_config()
+        self.after(150, self.bring_to_front)
         self.after(150, self.drain_queue)
         self.after(1200, self.check_for_updates)
+
+    def bring_to_front(self) -> None:
+        self.lift()
+        self.focus_force()
+        self.attributes("-topmost", True)
+        self.after(250, lambda: self.attributes("-topmost", False))
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -565,7 +572,7 @@ class ClearMeGui(tk.Tk):
         data["language"] = LANG_LABELS.get(self.lang_var.get(), "en")
         CONFIG_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
         if not silent:
-            self.log_info(f"Saved config: {CONFIG_PATH}")
+            self.log_info(f"Saved config: {CONFIG_PATH.name}")
 
     def validate(self) -> bool:
         checks = {
@@ -634,8 +641,6 @@ class ClearMeGui(tk.Tk):
             cmd.extend(["--fitc", selected_fit])
 
     def run_command(self, cmd: list[str], done_tag: str) -> None:
-        if done_tag != "ANALYZE_DONE":
-            self.queue.put("Command: " + " ".join(f'"{x}"' if " " in x else x for x in cmd) + "\n\n")
         proc = subprocess.Popen(
             cmd,
             cwd=str(APP_DIR),
@@ -725,11 +730,11 @@ class ClearMeGui(tk.Tk):
     def handle_clear_success(self) -> None:
         self.status_var.set(self.t("clear_complete"))
         outputs = self.cleared_outputs()
-        location = str(outputs[0].parent) if outputs else "next to the input"
+        location = outputs[0].parent.name if outputs else "input folder"
         if len(outputs) > 1:
-            self.log_info(f"Dual BIOS clear and split complete. Output files were saved to: {location}")
+            self.log_info(f"Dual BIOS clear and split complete. Output files were saved in: {location}")
         else:
-            self.log_info(f"Clear complete. Output file was saved to: {location}")
+            self.log_info(f"Clear complete. Output file was saved in: {location}")
         self.open_output_location(outputs)
 
     def handle_analyze_done(self, code: int) -> None:
@@ -804,7 +809,7 @@ class ClearMeGui(tk.Tk):
     def format_tagged_log(self, tag: str, text: str) -> str:
         lines = str(text).splitlines() or [""]
         output = [f"[{tag}] {lines[0]}"]
-        output.extend(f"       {line}" for line in lines[1:])
+        output.extend(f"  {line}" if line else "" for line in lines[1:])
         return "\n".join(output) + "\n"
 
     def clear_log(self) -> None:
@@ -824,7 +829,7 @@ class ClearMeGui(tk.Tk):
         if not path:
             return
         Path(path).write_text(content + "\n", encoding="utf-8")
-        self.log_info(f"Saved log: {path}")
+        self.log_info(f"Saved log: {Path(path).name}")
 
     def cleared_outputs(self) -> list[Path]:
         payload = self.parse_result_payload()

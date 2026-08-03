@@ -2,69 +2,25 @@
 setlocal
 cd /d "%~dp0"
 
-set "PYTHON_CMD="
-set "PYTHONW_CMD="
+set "PYTHON_EXE=%~dp0Runtime\Python\python.exe"
+set "PYTHONW_EXE=%~dp0Runtime\Python\pythonw.exe"
 
-py -3 --version >nul 2>nul
-if errorlevel 1 (
-  python --version >nul 2>nul
-  if not errorlevel 1 set "PYTHON_CMD=python"
-) else (
-  set "PYTHON_CMD=py -3"
-)
-
-if not defined PYTHON_CMD (
-  echo Python was not found. Installing Python with winget...
-  winget --version >nul 2>nul
-  if errorlevel 1 (
-    echo winget was not found. Please install Python manually from https://www.python.org/
-    pause
-    exit /b 1
-  )
-  winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
-  py -3 --version >nul 2>nul
-  if errorlevel 1 (
-    python --version >nul 2>nul
-    if not errorlevel 1 set "PYTHON_CMD=python"
-  ) else (
-    set "PYTHON_CMD=py -3"
-  )
-)
-
-if not defined PYTHON_CMD (
-  echo Python was installed, but it is not available in this terminal yet.
-  echo Close this window and run this launcher again.
+if not exist "%PYTHON_EXE%" (
+  echo Bundled Python runtime was not found.
+  echo Please download the full portable release ZIP, extract it, then run this file again.
   pause
   exit /b 1
 )
 
-py -3w --version >nul 2>nul
+"%PYTHON_EXE%" -c "import tkinter, colorama, crccheck, pltable" >nul 2>nul
 if errorlevel 1 (
-  pythonw --version >nul 2>nul
-  if not errorlevel 1 set "PYTHONW_CMD=pythonw"
-) else (
-  set "PYTHONW_CMD=py -3w"
-)
-if not defined PYTHONW_CMD set "PYTHONW_CMD=%PYTHON_CMD%"
-
-echo Installing required Python packages...
-%PYTHON_CMD% -m pip install --upgrade pip
-%PYTHON_CMD% -m pip install --upgrade colorama crccheck pltable
-if errorlevel 1 (
-  echo Failed to install required Python packages.
+  echo Bundled Python GUI runtime or dependencies are missing.
+  echo Rebuild the release with Build.bat or download the full portable release ZIP again.
   pause
   exit /b 1
 )
 
-echo Checking required Python packages...
-%PYTHON_CMD% -c "import colorama, crccheck, pltable"
-if errorlevel 1 (
-  echo Required Python packages are still missing.
-  echo Try running this command manually:
-  echo %PYTHON_CMD% -m pip install --upgrade colorama crccheck pltable
-  pause
-  exit /b 1
-)
+if not exist "%PYTHONW_EXE%" set "PYTHONW_EXE=%PYTHON_EXE%"
 
-start "" %PYTHONW_CMD% "%~dp0AutoClearME_GUI.py"
+start "" "%PYTHONW_EXE%" "%~dp0AutoClearME_GUI.py"
 exit /b 0

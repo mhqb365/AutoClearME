@@ -20,7 +20,7 @@ The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matc
 - Saves the cleaned BIOS next to the original input file with the `_CLEARME` suffix.
 - Opens File Explorer after a successful clear.
 - Supports English and Vietnamese UI.
-- `Run.bat` automatically prepares the required dependencies.
+- The release ZIP includes portable Python and required ME Analyzer dependencies.
 - Automatically checks for updates when a new release is available.
 
 ME Region and FIT are not distributed with this project. You must prepare them yourself, or download what I have here: [ME Region & FIT](https://drive.google.com/drive/folders/1ocp61oICeFGZuf-J59gpnLO88XGzKvPY?usp=sharing)
@@ -33,19 +33,20 @@ Download and extract them, then select the folders in `Settings`.
 2. Download the ZIP file from the latest release.
 3. Extract the ZIP file to any folder.
 4. Double-click `Run.bat`.
-5. Wait while the launcher prepares the required components.
-6. The Auto Clear ME interface will open.
+5. The Auto Clear ME interface will open.
 
-`Run.bat` checks and installs only what is missing:
+The release ZIP already includes:
 
-- Python 3, installed with `winget` if Python is not found.
-- The latest `pip`.
+- Portable Python embeddable runtime.
 - Python packages required by ME Analyzer:
   - `colorama`
   - `crccheck`
   - `pltable`
+- The bundled `MEA` folder.
+- `requirements.txt` as a fallback dependency list for manual Python setups.
 
-If `winget` is not available, install Python manually from <https://www.python.org/>, then run `Run.bat` again.
+Users do not need to install Python, `pip`, or any Python package manually.
+If you choose to run with your own Python instead of the bundled runtime, install the same dependencies with `pip install -r requirements.txt`.
 
 ### How To Use
 
@@ -114,7 +115,7 @@ App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME R
 - Lưu file BIOS đã clear ngay cạnh file input gốc với hậu tố `_CLEARME`.
 - Mở File Explorer sau khi clear thành công.
 - Hỗ trợ giao diện tiếng Anh và tiếng Việt.
-- Launcher `Run.bat` tự động chuẩn bị thư viện cần thiết.
+- File ZIP release đã bao gồm Python portable và thư viện ME Analyzer cần thiết.
 - Tự động kiểm tra cập nhật khi có bản phát hành mới.
 
 ME Region và FIT không được phân phối kèm dự án này. Bạn tự chuẩn bị hoặc tải những gì tôi có ở đây: [ME Region & FIT](https://drive.google.com/drive/folders/1ocp61oICeFGZuf-J59gpnLO88XGzKvPY?usp=sharing)
@@ -127,19 +128,20 @@ Tải về và giải nén, sau đó chọn thư mục trong `Settings`.
 2. Tải file ZIP của bản release mới nhất.
 3. Giải nén file ZIP ra một thư mục bất kỳ.
 4. Nhấp đúp vào `Run.bat`.
-5. Chờ launcher chuẩn bị các thành phần cần thiết.
-6. Giao diện Auto Clear ME sẽ được mở lên.
+5. Giao diện Auto Clear ME sẽ được mở lên.
 
-`Run.bat` sẽ kiểm tra và chỉ cài những thứ còn thiếu:
+File ZIP release đã bao gồm sẵn:
 
-- Python 3, cài bằng `winget` nếu máy chưa có Python.
-- Bản `pip` mới nhất.
+- Python embeddable portable.
 - Các gói Python mà ME Analyzer cần:
   - `colorama`
   - `crccheck`
   - `pltable`
+- Thư mục `MEA` đi kèm.
+- File `requirements.txt` để làm danh sách thư viện dự phòng khi chạy bằng Python tự cài.
 
-Nếu máy không có `winget`, hãy cài Python thủ công từ <https://www.python.org/>, sau đó chạy lại `Run.bat`.
+Người dùng không cần cài Python, `pip`, hoặc thư viện Python thủ công.
+Nếu muốn chạy bằng Python tự cài thay vì runtime đi kèm, cài thư viện bằng `pip install -r requirements.txt`.
 
 ### Cách Dùng
 

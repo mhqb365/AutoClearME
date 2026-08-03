@@ -554,6 +554,23 @@ def summarize_fitc_failure(fitc_runs: list[dict]) -> str:
             lines.append("Tried FIT: " + ", ".join(fitc_versions) + ".")
         lines.append("Try a newer FIT from the same major version.")
         return "\n".join(lines)
+    if "Failed to load input file. Invalid input file type" in combined_output:
+        lines = [
+            "FIT could not load the selected input file.",
+            "Possible causes:",
+            "- The BIOS dump is not a full SPI/programmer dump.",
+            "- The file is an extracted ME Region, OEM capsule, or unsupported format.",
+            "- The selected FIT versions are not compatible with this BIOS.",
+            "What to try:",
+            "- Use a full SPI/programmer BIOS dump.",
+            "- Add or choose a FIT version closer to the detected ME/FIT version.",
+        ]
+        if source_versions:
+            lines.append(f"- This dump reports it was built with FIT: {source_versions[-1]}.")
+        if fitc_versions:
+            lines.extend(["FIT versions tried:"])
+            lines.extend(f"- {version}" for version in fitc_versions)
+        return "\n".join(lines)
     chunks = []
     for run_result in fitc_runs:
         fitc_name = Path(run_result.get("fitc", "")).name
@@ -811,6 +828,10 @@ def require_config_values(**values: str | None) -> None:
         )
 
 
+def log_path_name(path: Path | str) -> str:
+    return Path(path).name or str(path)
+
+
 def prepare_input(args: argparse.Namespace, out_value: str | None) -> PrepareInput:
     if args.dual_file1 and args.dual_file2:
         file1 = Path(args.dual_file1).resolve()
@@ -818,7 +839,7 @@ def prepare_input(args: argparse.Namespace, out_value: str | None) -> PrepareInp
         out_root = Path(out_value).resolve() if out_value else file1.parent
         out_root.mkdir(parents=True, exist_ok=True)
         temp_merged_input, merged_chip1_size = merge_dual_inputs(file1, file2, out_root)
-        print(f"[0/5] Merged Dual BIOS files in user order: {file1} + {file2}", flush=True)
+        print(f"[0/5] Merged Dual BIOS files in user order: {log_path_name(file1)} + {log_path_name(file2)}", flush=True)
         return PrepareInput(
             image=temp_merged_input,
             out_root=out_root,
@@ -860,16 +881,16 @@ def cached_firmware_info(args: argparse.Namespace) -> FirmwareInfo | None:
 def prepare_firmware_info(args: argparse.Namespace, image: Path, mea: Path | None) -> FirmwareInfo:
     info = cached_firmware_info(args)
     if info:
-        print(f"[1/5] Using cached ME Analyzer result: {image}", flush=True)
+        print(f"[1/5] Using cached ME Analyzer result: {log_path_name(image)}", flush=True)
         return info
-    print(f"[1/5] Analyzing input with ME Analyzer: {image}", flush=True)
+    print(f"[1/5] Analyzing input with ME Analyzer: {log_path_name(image)}", flush=True)
     if not mea:
         raise FileNotFoundError("ME Analyzer not found. Pass --mea path/to/MEA.py or MEA.exe.")
     return analyze_with_mea(mea, image)
 
 
 def matching_rgn(args: argparse.Namespace, repo: Path, info: FirmwareInfo) -> tuple[Path, list[dict]]:
-    print(f"[3/5] Searching matching PRD_RGN in: {repo}", flush=True)
+    print(f"[3/5] Searching matching PRD_RGN in: {log_path_name(repo)}", flush=True)
     if args.rgn:
         rgn = Path(args.rgn).resolve()
         if not rgn.exists():
@@ -967,7 +988,7 @@ def command_prepare(args: argparse.Namespace) -> int:
 
     print(f"[2/5] Detected CSME {info.version}, SKU: {display_sku(info.sku) or 'unknown'}", flush=True)
     rgn, ranked = matching_rgn(args, repo, info)
-    print(f"[4/5] Selected RGN: {rgn}", flush=True)
+    print(f"[4/5] Selected RGN: {log_path_name(rgn)}", flush=True)
     fitc_candidates = ranked_fit_candidates(args, fitc_root, info)
     fitc = fitc_candidates[0] if fitc_candidates else None
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1042,7 +1063,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             file2 = Path(args.dual_file2).resolve()
             temp_dir = tempfile.TemporaryDirectory(prefix="AutoClearME_")
             image, chip1_size = merge_dual_inputs(file1, file2, Path(temp_dir.name))
-            print(f"Merged Dual BIOS for analysis: {file1} + {file2}", flush=True)
+            print(f"Merged Dual BIOS for analysis: {log_path_name(file1)} + {log_path_name(file2)}", flush=True)
         else:
             if not args.input:
                 raise ValueError("Missing --input, or use --dual-file1 and --dual-file2 for Dual BIOS analysis.")
@@ -1056,8 +1077,8 @@ def command_analyze(args: argparse.Namespace) -> int:
         if not mea:
             raise ValueError("ME Analyzer not found. Keep MEA/MEA.py in the project, edit config.json, or pass --mea.")
 
-        print(f"[ANALYZE] Input: {image}", flush=True)
-        print(f"[ANALYZE] ME Analyzer: {mea}", flush=True)
+        print(f"[ANALYZE] Input: {log_path_name(image)}", flush=True)
+        print(f"[ANALYZE] ME Analyzer: {log_path_name(mea)}", flush=True)
         info = analyze_with_mea(mea, image)
         if not info.version or info.major is None:
             raise RuntimeError(

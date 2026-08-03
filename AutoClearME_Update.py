@@ -17,7 +17,7 @@ import zipfile
 from pathlib import Path
 
 
-KEEP_FILES = {"config.json"}
+KEEP_FILES = {"config.json", "Runtime"}
 REQUIRED_FILES = [
     "Run.bat",
     "AutoClearME.py",
@@ -87,6 +87,7 @@ def replace_app(payload: Path, app_dir: Path) -> None:
     print(f"Replacing app files in: {app_dir}", flush=True)
     for item in app_dir.iterdir():
         if item.name in KEEP_FILES:
+            print(f"Keeping existing: {item.name}", flush=True)
             continue
         if item.name.lower() == "autoclearme_update.py":
             continue
@@ -98,6 +99,7 @@ def replace_app(payload: Path, app_dir: Path) -> None:
     for item in payload.iterdir():
         target = app_dir / item.name
         if item.name in KEEP_FILES and target.exists():
+            print(f"Skipping bundled replacement for existing: {item.name}", flush=True)
             continue
         if item.is_dir():
             shutil.copytree(item, target, dirs_exist_ok=True)
