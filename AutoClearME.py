@@ -366,11 +366,15 @@ def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
     else:
         return 0, "missing-input-sku"
     name_lower = candidate.name.lower()
-    if "prd" in name_lower:
-        score += 5
+    if "extr" not in name_lower:
+        score += 60
+        reasons.append("fit-loadable")
     if "rgn" in name_lower:
         score += 10
         reasons.append("rgn")
+    if "prd" in name_lower:
+        score += 5
+        reasons.append("prd")
     cv = version_tuple(c.version)
     iv = version_tuple(input_info.version)
     if cv == iv:
@@ -388,8 +392,7 @@ def find_best_rgn(repo: Path, input_info: FirmwareInfo) -> tuple[Path, list[dict
         p for p in repo.rglob("*")
         if p.is_file()
         and p.suffix.lower() in {".bin", ".rgn"}
-        and "prd" in p.name.lower()
-        and ("rgn" in p.name.lower() or "extr" in p.name.lower())
+        and (input_info.version or "").split(".", 1)[0] in p.name
     ]
     ranked = []
     for p in candidates:
@@ -899,7 +902,7 @@ def prepare_firmware_info(args: argparse.Namespace, image: Path, mea: Path | Non
 
 
 def matching_rgn(args: argparse.Namespace, repo: Path, info: FirmwareInfo) -> tuple[Path, list[dict]]:
-    print(f"[3/5] Searching matching PRD_RGN in: {log_path_name(repo)}", flush=True)
+    print(f"[3/5] Searching matching ME Region in: {log_path_name(repo)}", flush=True)
     if args.rgn:
         rgn = Path(args.rgn).resolve()
         if not rgn.exists():
