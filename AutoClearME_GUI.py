@@ -44,6 +44,7 @@ FALLBACK_TEXT = {
         "bios_file_2": "BIOS file 2",
         "me_region": "ME Region",
         "fit": "FIT",
+        "winkey": "Win Key",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Save log",
@@ -87,6 +88,7 @@ FALLBACK_TEXT = {
         "bios_file_2": "File BIOS 2",
         "me_region": "ME Region",
         "fit": "FIT",
+        "winkey": "WinKey",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Lưu log",
@@ -260,6 +262,8 @@ class ClearMeGui(tk.Tk):
         actions = ttk.Frame(form)
         actions.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(12, 0))
         actions.columnconfigure(2, weight=1)
+        self.winkey_button = ttk.Button(actions, command=self.start_find_winkey)
+        self.winkey_button.grid(row=0, column=3, padx=(8, 0))
         self.clear_button = ttk.Button(actions, command=self.start_clear)
         self.clear_button.grid(row=0, column=4, padx=(8, 0))
         self.status_var = tk.StringVar(value="")
@@ -341,6 +345,7 @@ class ClearMeGui(tk.Tk):
         self.ui["bios_files_frame"].configure(text=self.t("bios_files"))
         self.tabs.tab(0, text=self.t("single_bios"))
         self.tabs.tab(1, text=self.t("dual_bios"))
+        self.winkey_button.configure(text=self.t("winkey"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -590,6 +595,30 @@ class ClearMeGui(tk.Tk):
             return False
         return True
 
+    def selected_bios_files(self) -> list[str]:
+        if self.mode_var.get() == "dual":
+            return [
+                value for value in (
+                    self.input_path("dual_file1"),
+                    self.input_path("dual_file2"),
+                )
+                if value.strip()
+            ]
+        value = self.input_path("input")
+        return [value] if value.strip() else []
+
+    def start_find_winkey(self) -> None:
+        files = self.selected_bios_files()
+        if not files:
+            self.log_info("Find WinKey skipped: please select file(s) first")
+            return
+        self.winkey_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        cmd = self.engine_cmd("winkey")
+        for path in files:
+            cmd.extend(["--input", path])
+        threading.Thread(target=self.run_command, args=(cmd, "WINKEY_DONE"), daemon=True).start()
+
     def start_clear(self) -> None:
         if not self.validate():
             return
@@ -654,6 +683,8 @@ class ClearMeGui(tk.Tk):
         for line in proc.stdout:
             if done_tag == "ANALYZE_DONE":
                 self.last_analyze_result += line
+            elif done_tag == "WINKEY_DONE":
+                self.queue.put(line)
             else:
                 self.last_result += line
                 if self.should_show_clear_line(line):
@@ -709,7 +740,16 @@ class ClearMeGui(tk.Tk):
         if tag == "ANALYZE_DONE":
             self.handle_analyze_done(code)
             return
+        if tag == "WINKEY_DONE":
+            self.handle_winkey_done(code)
+            return
         self.handle_clear_done(code)
+
+    def handle_winkey_done(self, code: int) -> None:
+        self.winkey_button.configure(state="normal")
+        self.status_var.set(self.t("ready") if code == 0 else self.t("error"))
+        if code != 0:
+            self.log_error(f"Find WinKey stopped with exit code {code}.")
 
     def handle_clear_done(self, code: int) -> None:
         self.clear_button.configure(state="normal")

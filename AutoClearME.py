@@ -15,6 +15,7 @@ It deliberately refuses to overwrite the source image.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import datetime as _dt
 import json
 import os
@@ -71,6 +72,15 @@ class BuildResult:
     split_outputs: list[str]
     fitc_runs: list[dict]
     fitc: Path | None
+
+
+@dataclass
+class WinKeyCandidate:
+    method: str
+    offset: int
+    key: str
+    length: int = 29
+    classification: str = ""
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
@@ -344,6 +354,241 @@ def version_tuple(value: str) -> tuple[int, int, int, int]:
 def version_rank(value: str) -> int:
     major, minor, hotfix, build = version_tuple(value)
     return major * 1_000_000_000 + minor * 1_000_000 + hotfix * 10_000 + build
+
+
+WINKEY_LENGTH = 29
+WINKEY_PATTERN = re.compile(rb"(?<![A-Za-z0-9])[A-Za-z0-9]{5}(?:-[A-Za-z0-9]{5}){4}(?![A-Za-z0-9])")
+WINKEY_OEM_MARKER = bytes([
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x1D, 0x00, 0x00, 0x00,
+])
+WINKEY_ANCHORS = ("Windows", "Product", "ProductKey", "DigitalProductId")
+WINKEY_KNOWN_KEYS = {
+    "7H3HT-N36VD-XK866-8RV8Y-39M6M": "Win 10 RTM Core OEM:DM, EULA OEM",
+    "TX9XD-98N7V-6WMQ6-BX7FG-H8Q99": "Windows 10/11 Home generic install key, Retail channel",
+    "VK7JG-NPHTM-C97JM-9MPGT-3V66T": "Windows 10/11 Pro generic install key, Retail channel",
+    "W269N-WFGWX-YVC9B-4J6C9-T83GX": "Windows 10/11 Pro generic install key, Volume KMS client",
+    "NPPR9-FWDCX-D2C8J-H872K-2YT43": "Windows 10/11 Enterprise generic install key, Volume KMS client",
+    "MH37W-N47XK-V7XM9-C7227-GCQG9": "Windows 10/11 Pro N generic install key, Retail channel",
+    "NW6C2-QMPVW-D7KKK-3GKT6-VCFB2": "Windows 10/11 Education generic install key, Volume KMS client",
+    "2WH4N-8QGBV-H22JP-CT43Q-MDWWJ": "Windows 10/11 Education N generic install key, Volume KMS client",
+}
+
+
+def find_all_bytes(buffer: bytes, pattern: bytes, start: int = 0) -> Iterable[int]:
+    offset = max(0, start)
+    while pattern:
+        found = buffer.find(pattern, offset)
+        if found < 0:
+            return
+        yield found
+        offset = found + 1
+
+
+def method_priority(method: str) -> int:
+    if method == "Hex marker":
+        return 0
+    if method == "ACPI MSDM":
+        return 1
+    if method == "Lenovo LENV XOR DMI":
+        return 2
+    if method.startswith("Near "):
+        return 3
+    return 4
+
+
+def is_valid_winkey(key: str) -> bool:
+    compact = key.replace("-", "")
+    if not any(ch.isalpha() for ch in compact) or not any(ch.isdigit() for ch in compact):
+        return False
+    groups = key.split("-")
+    if groups and all(group == groups[0] for group in groups):
+        return False
+    return len(set(compact)) >= 6
+
+
+def classify_winkey(key: str, method: str) -> str:
+    pidgen = classify_winkey_with_pidgenx(key)
+    if pidgen:
+        return pidgen
+    known = WINKEY_KNOWN_KEYS.get(key.upper())
+    if known:
+        return known
+    if method in {"Hex marker", "ACPI MSDM"}:
+        return "likely OEM:DM embedded key"
+    if method == "Lenovo LENV XOR DMI":
+        return "likely Lenovo XOR-decoded DMI/OEM key"
+    if "DigitalProductId" in method:
+        return "likely installed Windows product key"
+    if method.startswith("Near "):
+        return "possible Windows product key"
+    return "product key candidate"
+
+
+def classify_winkey_with_pidgenx(key: str) -> str:
+    if os.name != "nt":
+        return ""
+    try:
+        windows = Path(os.environ.get("WINDIR", r"C:\Windows"))
+        pkey_config = windows / "System32" / "spp" / "tokens" / "pkeyconfig" / "pkeyconfig.xrm-ms"
+        if not pkey_config.exists():
+            return ""
+        digital_product_id4 = (ctypes.c_ubyte * 0x04F8)()
+        digital_product_id4[0] = 0xF8
+        digital_product_id4[1] = 0x04
+        result = ctypes.windll.pidgenx.PidGenX(
+            ctypes.c_wchar_p(key),
+            ctypes.c_wchar_p(str(pkey_config)),
+            ctypes.c_wchar_p("00000"),
+            ctypes.c_int(0),
+            ctypes.c_void_p(),
+            ctypes.c_void_p(),
+            digital_product_id4,
+        )
+        if result != 0:
+            return ""
+        data = bytes(digital_product_id4)
+        strings = read_printable_utf16_strings(data)
+        edition = next((value for value in strings if is_windows_edition_string(value)), "")
+        eula = next(
+            (
+                value
+                for value in strings
+                if value.lower() in {"oem", "retail", "volume"}
+            ),
+            "",
+        )
+        channel = read_utf16_string(data, 1016, 128)
+        parts = []
+        if edition:
+            edition_label = format_windows_edition(edition)
+            parts.append(f"{edition_label} {channel}".strip() if channel else edition_label)
+        elif channel:
+            parts.append(channel)
+        if eula:
+            eula_label = eula.upper() if eula.lower() == "oem" else eula.capitalize()
+            parts.append("EULA " + eula_label)
+        return ", ".join(dict.fromkeys(parts))
+    except Exception:
+        return ""
+
+
+def read_printable_utf16_strings(buffer: bytes) -> list[str]:
+    values = []
+    current = []
+    for offset in range(0, len(buffer) - 1, 2):
+        value = int.from_bytes(buffer[offset:offset + 2], "little")
+        if 0x20 <= value <= 0x7E:
+            current.append(chr(value))
+            continue
+        if len(current) >= 3:
+            values.append("".join(current).strip())
+        current = []
+    if len(current) >= 3:
+        values.append("".join(current).strip())
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def read_utf16_string(buffer: bytes, offset: int, length: int) -> str:
+    if offset < 0 or length <= 0 or offset >= len(buffer):
+        return ""
+    value = buffer[offset:offset + length].decode("utf-16le", errors="ignore")
+    return value.split("\0", 1)[0].strip()
+
+
+def is_windows_edition_string(value: str) -> bool:
+    if not value or "-" in value or "." in value:
+        return False
+    lower = value.lower()
+    return any(token in lower for token in ("core", "professional", "enterprise", "education", "server"))
+
+
+def format_windows_edition(value: str) -> str:
+    aliases = {
+        "professional": "Win 10 RTM Professional",
+        "core": "Win 10 RTM Core",
+        "enterprise": "Win 10 RTM Enterprise",
+        "education": "Win 10 RTM Education",
+    }
+    return aliases.get(value.strip().lower(), value.strip())
+
+
+def add_winkey_range_matches(
+    buffer: bytes,
+    start: int,
+    length: int,
+    method: str,
+    by_offset: dict[int, WinKeyCandidate],
+    base_offset: int = 0,
+) -> None:
+    if start < 0 or start >= len(buffer) or length <= 0:
+        return
+    end = min(len(buffer), start + length)
+    for match in WINKEY_PATTERN.finditer(buffer, start, end):
+        key = match.group(0).decode("ascii").upper()
+        if not is_valid_winkey(key):
+            continue
+        original_offset = base_offset + match.start()
+        existing = by_offset.get(original_offset)
+        if existing and method_priority(existing.method) <= method_priority(method):
+            continue
+        by_offset[original_offset] = WinKeyCandidate(
+            method=method,
+            offset=original_offset,
+            key=key,
+            classification=classify_winkey(key, method),
+        )
+
+
+def add_lenovo_lenv_matches(buffer: bytes, by_offset: dict[int, WinKeyCandidate]) -> None:
+    for block_offset in find_all_bytes(buffer, b"LENV"):
+        if block_offset + 0x10 >= len(buffer):
+            continue
+        block_length = min(0x1000, len(buffer) - block_offset)
+        body_length = block_length - 0x10
+        if body_length < 0x18:
+            continue
+        xor_key = buffer[block_offset + 0x0D]
+        body = bytes(value ^ xor_key for value in buffer[block_offset + 0x10:block_offset + 0x10 + body_length])
+        entry_count = int.from_bytes(buffer[block_offset + 0x08:block_offset + 0x0C], "little", signed=False)
+        found_entry = False
+        entry_offset = 0
+        if 0 < entry_count <= 256:
+            for _entry_index in range(entry_count):
+                if entry_offset + 0x18 > len(body):
+                    break
+                data_size = int.from_bytes(body[entry_offset + 0x10:entry_offset + 0x14], "little", signed=False)
+                if data_size > len(body) - entry_offset - 0x18:
+                    break
+                found_entry = True
+                add_winkey_range_matches(
+                    body,
+                    entry_offset + 0x18,
+                    data_size,
+                    "Lenovo LENV XOR DMI",
+                    by_offset,
+                    block_offset + 0x10,
+                )
+                entry_offset += 0x18 + data_size
+        if not found_entry:
+            add_winkey_range_matches(body, 0, len(body), "Lenovo LENV XOR DMI", by_offset, block_offset + 0x10)
+
+
+def find_winkeys(buffer: bytes) -> list[WinKeyCandidate]:
+    by_offset: dict[int, WinKeyCandidate] = {}
+    if len(buffer) < WINKEY_LENGTH:
+        return []
+    for marker_offset in find_all_bytes(buffer, WINKEY_OEM_MARKER):
+        add_winkey_range_matches(buffer, marker_offset + len(WINKEY_OEM_MARKER), 256, "Hex marker", by_offset)
+    for marker_offset in find_all_bytes(buffer, b"MSDM"):
+        add_winkey_range_matches(buffer, marker_offset, 512, "ACPI MSDM", by_offset)
+    add_lenovo_lenv_matches(buffer, by_offset)
+    for anchor in WINKEY_ANCHORS:
+        for marker_offset in find_all_bytes(buffer, anchor.encode("ascii")):
+            add_winkey_range_matches(buffer, marker_offset, 768, f"Near {anchor}", by_offset)
+    add_winkey_range_matches(buffer, 0, len(buffer), "Direct pattern", by_offset)
+    return sorted(by_offset.values(), key=lambda candidate: (method_priority(candidate.method), candidate.offset))
 
 
 def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
@@ -1145,6 +1390,37 @@ def command_analyze(args: argparse.Namespace) -> int:
             temp_dir.cleanup()
 
 
+def format_winkey_candidate(candidate: WinKeyCandidate) -> str:
+    classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+    return f"  {candidate.key} | {classification}"
+
+
+def command_winkey(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Finding WinKey in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            candidates = find_winkeys(path.read_bytes())
+            if not candidates:
+                print("  No plaintext Windows product key candidate found", flush=True)
+                continue
+            unique_candidates = {}
+            for candidate in candidates:
+                classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+                unique_candidates.setdefault((candidate.key, classification), candidate)
+            for candidate in unique_candidates.values():
+                print(format_winkey_candidate(candidate), flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Find WinKey failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Automate Intel CSME 11-20 clean ME preparation.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1185,6 +1461,10 @@ def build_parser() -> argparse.ArgumentParser:
     ana.add_argument("--dual-file2", help="Dual BIOS file 2. It will be placed second in merged image.")
     ana.add_argument("--mea", help="Path to MEA.py, MEA.exe, or ME Analyzer.exe. Overrides config mea.")
     ana.set_defaults(func=command_analyze)
+
+    winkey = sub.add_parser("winkey", help="Find plaintext Windows product key candidates in BIOS dump(s).")
+    winkey.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
+    winkey.set_defaults(func=command_winkey)
     return p
 
 
