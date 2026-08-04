@@ -18,6 +18,7 @@
       "me_region": "ME Region",
       "fit": "FIT",
       "winkey": "Win Key",
+      "unlock_asus": "Unlock ASUS",
       "clear_me": "Clear ME",
       "log": "Log",
       "save_log": "Save log",
@@ -45,6 +46,7 @@
       "automatic_clear_failed": "Automatic clear did not complete.",
       "update_available_title": "Update available",
       "update_available_message": "Auto Clear ME {version} is available. Download and install it now?",
+      "changelog": "Changelog",
       "update_starting": "Starting update. The app will close and reopen after the update.",
       "update_check_failed": "Could not check for updates."
     },
@@ -62,6 +64,7 @@
       "me_region": "ME Region",
       "fit": "FIT",
       "winkey": "Win Key",
+      "unlock_asus": "Unlock ASUS",
       "clear_me": "Clear ME",
       "log": "Log",
       "save_log": "Lưu log",
@@ -89,6 +92,7 @@
       "automatic_clear_failed": "Clear tự động chưa hoàn tất.",
       "update_available_title": "Có bản cập nhật",
       "update_available_message": "Auto Clear ME {version} đã có bản mới. Tải về và cài ngay bây giờ?",
+      "changelog": "Thay đổi",
       "update_starting": "Đang bắt đầu cập nhật. App sẽ đóng và mở lại sau khi cập nhật xong.",
       "update_check_failed": "Không thể kiểm tra cập nhật."
     }

@@ -45,6 +45,7 @@ FALLBACK_TEXT = {
         "me_region": "ME Region",
         "fit": "FIT",
         "winkey": "Win Key",
+        "unlock_asus": "Unlock ASUS",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Save log",
@@ -72,6 +73,7 @@ FALLBACK_TEXT = {
         "automatic_clear_failed": "Automatic clear did not complete.",
         "update_available_title": "Update available",
         "update_available_message": "Auto Clear ME {version} is available. Download and install it now?",
+        "changelog": "Changelog",
         "update_starting": "Starting update. The app will close and reopen after the update.",
         "update_check_failed": "Could not check for updates.",
     },
@@ -88,7 +90,8 @@ FALLBACK_TEXT = {
         "bios_file_2": "File BIOS 2",
         "me_region": "ME Region",
         "fit": "FIT",
-        "winkey": "WinKey",
+        "winkey": "Win Key",
+        "unlock_asus": "Mở khóa ASUS",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Lưu log",
@@ -116,6 +119,7 @@ FALLBACK_TEXT = {
         "automatic_clear_failed": "Clear tự động chưa hoàn tất.",
         "update_available_title": "Có bản cập nhật",
         "update_available_message": "Auto Clear ME {version} đã có bản mới. Tải về và cài ngay bây giờ?",
+        "changelog": "Thay đổi",
         "update_starting": "Đang bắt đầu cập nhật. App sẽ đóng và mở lại sau khi cập nhật xong.",
         "update_check_failed": "Không thể kiểm tra cập nhật.",
     }
@@ -262,12 +266,14 @@ class ClearMeGui(tk.Tk):
         actions = ttk.Frame(form)
         actions.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(12, 0))
         actions.columnconfigure(2, weight=1)
+        self.unlock_asus_button = ttk.Button(actions, command=self.start_unlock_asus)
+        self.unlock_asus_button.grid(row=0, column=3, padx=(8, 0))
         self.winkey_button = ttk.Button(actions, command=self.start_find_winkey)
-        self.winkey_button.grid(row=0, column=3, padx=(8, 0))
+        self.winkey_button.grid(row=0, column=4, padx=(8, 0))
         self.clear_button = ttk.Button(actions, command=self.start_clear)
-        self.clear_button.grid(row=0, column=4, padx=(8, 0))
+        self.clear_button.grid(row=0, column=5, padx=(8, 0))
         self.status_var = tk.StringVar(value="")
-        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=5, sticky="w", pady=(8, 0))
+        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=6, sticky="w", pady=(8, 0))
 
         log_frame = ttk.LabelFrame(content, padding=10)
         self.ui["log_frame"] = log_frame
@@ -346,6 +352,7 @@ class ClearMeGui(tk.Tk):
         self.tabs.tab(0, text=self.t("single_bios"))
         self.tabs.tab(1, text=self.t("dual_bios"))
         self.winkey_button.configure(text=self.t("winkey"))
+        self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -401,7 +408,11 @@ class ClearMeGui(tk.Tk):
             latest = str(payload.get("tag_name") or payload.get("name") or "").strip()
             url = self.release_zip_url(payload)
             if latest and url and self.version_newer(latest, self.current_version()):
-                self.queue.put(("UPDATE_AVAILABLE", {"version": format_version(latest), "url": url}))
+                self.queue.put(("UPDATE_AVAILABLE", {
+                    "version": format_version(latest),
+                    "url": url,
+                    "changelog": str(payload.get("body") or "").strip(),
+                }))
         except Exception as exc:
             self.queue.put(("UPDATE_CHECK_FAILED", str(exc)))
 
@@ -429,10 +440,23 @@ class ClearMeGui(tk.Tk):
         if not version or not url:
             return
         message = self.t("update_available_message").format(version=version)
+        changelog = self.format_changelog(info.get("changelog", ""))
+        if changelog:
+            message = f"{message}\n\n{self.t('changelog')}:\n{changelog}"
         if not messagebox.askyesno(self.t("update_available_title"), message, parent=self):
             return
         self.log_info(self.t("update_starting"))
         self.start_update(url)
+
+    def format_changelog(self, value: object) -> str:
+        lines = [line.strip() for line in str(value or "").replace("\r\n", "\n").splitlines()]
+        lines = [line for line in lines if line]
+        if not lines:
+            return ""
+        text = "\n".join(lines)
+        if len(text) > 1200:
+            return text[:1200].rstrip() + "\n..."
+        return text
 
     def start_update(self, url: str) -> None:
         if not UPDATE_SCRIPT_PATH.exists():
@@ -619,6 +643,19 @@ class ClearMeGui(tk.Tk):
             cmd.extend(["--input", path])
         threading.Thread(target=self.run_command, args=(cmd, "WINKEY_DONE"), daemon=True).start()
 
+    def start_unlock_asus(self) -> None:
+        files = self.selected_bios_files()
+        if not files:
+            self.log_info("Unlock ASUS skipped: please select file(s) first")
+            return
+        self.unlock_asus_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_unlock_asus_result = ""
+        cmd = self.engine_cmd("unlock-asus")
+        for path in files:
+            cmd.extend(["--input", path])
+        threading.Thread(target=self.run_command, args=(cmd, "UNLOCK_ASUS_DONE"), daemon=True).start()
+
     def start_clear(self) -> None:
         if not self.validate():
             return
@@ -685,6 +722,9 @@ class ClearMeGui(tk.Tk):
                 self.last_analyze_result += line
             elif done_tag == "WINKEY_DONE":
                 self.queue.put(line)
+            elif done_tag == "UNLOCK_ASUS_DONE":
+                self.last_unlock_asus_result += line
+                self.queue.put(line)
             else:
                 self.last_result += line
                 if self.should_show_clear_line(line):
@@ -743,6 +783,9 @@ class ClearMeGui(tk.Tk):
         if tag == "WINKEY_DONE":
             self.handle_winkey_done(code)
             return
+        if tag == "UNLOCK_ASUS_DONE":
+            self.handle_unlock_asus_done(code)
+            return
         self.handle_clear_done(code)
 
     def handle_winkey_done(self, code: int) -> None:
@@ -750,6 +793,23 @@ class ClearMeGui(tk.Tk):
         self.status_var.set(self.t("ready") if code == 0 else self.t("error"))
         if code != 0:
             self.log_error(f"Find WinKey stopped with exit code {code}.")
+
+    def handle_unlock_asus_done(self, code: int) -> None:
+        self.unlock_asus_button.configure(state="normal")
+        self.status_var.set(self.t("clear_complete") if code == 0 else self.t("error"))
+        if code != 0:
+            self.log_error(f"Unlock ASUS stopped with exit code {code}.")
+            return
+        outputs = []
+        for line in self.last_unlock_asus_result.splitlines():
+            if line.strip().startswith("Output:"):
+                name = line.split(":", 1)[1].strip()
+                for source in self.selected_bios_files():
+                    candidate = Path(source).resolve().with_name(name)
+                    if candidate.exists():
+                        outputs.append(candidate)
+                        break
+        self.open_output_location(outputs)
 
     def handle_clear_done(self, code: int) -> None:
         self.clear_button.configure(state="normal")

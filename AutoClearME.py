@@ -40,6 +40,8 @@ APP_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = APP_DIR / "config.json"
 LOCAL_MEA = APP_DIR / "MEA" / "MEA.py"
 MEA_PYTHON_PACKAGES = ("colorama", "crccheck", "pltable")
+ASUS_AMITSE_MARKER = bytes.fromhex("41 4D 49 54 53 45 53 65 74 75 70 00")
+ASUS_UNLOCK_ZERO_LENGTH = 80
 
 
 @dataclass
@@ -976,6 +978,29 @@ def unique_output_path(base: Path) -> Path:
         counter += 1
 
 
+def asus_unlock_output_name(source: Path) -> Path:
+    suffix = source.suffix or ".bin"
+    return unique_output_path(source.with_name(f"{source.stem}_UNLOCK{suffix}"))
+
+
+def unlock_asus_password(source: Path, zero_length: int = ASUS_UNLOCK_ZERO_LENGTH) -> tuple[Path, list[tuple[int, int]]]:
+    data = bytearray(source.read_bytes())
+    cleared_ranges: list[tuple[int, int]] = []
+    marker_offset = data.find(ASUS_AMITSE_MARKER)
+    while marker_offset >= 0:
+        start = marker_offset + len(ASUS_AMITSE_MARKER)
+        end = min(start + zero_length, len(data))
+        if start < end:
+            data[start:end] = b"\x00" * (end - start)
+            cleared_ranges.append((start, end - start))
+        marker_offset = data.find(ASUS_AMITSE_MARKER, marker_offset + len(ASUS_AMITSE_MARKER))
+    if not cleared_ranges:
+        raise RuntimeError("Password marker was not found. This file may not use the supported ASUS password layout.")
+    output = asus_unlock_output_name(source)
+    output.write_bytes(data)
+    return output, cleared_ranges
+
+
 def clearme_name_for(source: Path, out_root: Path) -> Path:
     suffix = source.suffix or ".bin"
     return unique_output_path(out_root / f"{source.stem}_CLEARME{suffix}")
@@ -1399,7 +1424,7 @@ def command_winkey(args: argparse.Namespace) -> int:
     failed = 0
     for value in args.input:
         path = Path(value).resolve()
-        print(f"[INFO] Finding WinKey in {log_path_name(path)}", flush=True)
+        print(f"[INFO] Finding Win Key in {log_path_name(path)}", flush=True)
         try:
             if not path.exists():
                 print(f"File does not exist: {log_path_name(path)}", flush=True)
@@ -1418,6 +1443,24 @@ def command_winkey(args: argparse.Namespace) -> int:
         except Exception as exc:
             failed += 1
             print(f"  Find WinKey failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_unlock_asus(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Unlock ASUS in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            output, _cleared_ranges = unlock_asus_password(path, args.length)
+            print(f"  Output: {log_path_name(output)}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Unlock ASUS failed: {exc}", flush=True)
     return 0 if failed == 0 else 2
 
 
@@ -1465,6 +1508,11 @@ def build_parser() -> argparse.ArgumentParser:
     winkey = sub.add_parser("winkey", help="Find plaintext Windows product key candidates in BIOS dump(s).")
     winkey.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
     winkey.set_defaults(func=command_winkey)
+
+    unlock = sub.add_parser("unlock-asus", help="Clear ASUS BIOS password.")
+    unlock.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
+    unlock.add_argument("--length", type=int, default=ASUS_UNLOCK_ZERO_LENGTH, help=argparse.SUPPRESS)
+    unlock.set_defaults(func=command_unlock_asus)
     return p
 
 
