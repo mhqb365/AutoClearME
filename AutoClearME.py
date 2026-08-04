@@ -42,6 +42,11 @@ LOCAL_MEA = APP_DIR / "MEA" / "MEA.py"
 MEA_PYTHON_PACKAGES = ("colorama", "crccheck", "pltable")
 ASUS_AMITSE_MARKER = bytes.fromhex("41 4D 49 54 53 45 53 65 74 75 70 00")
 ASUS_UNLOCK_ZERO_LENGTH = 80
+ACER_OLD_PASSWORD_MARKER = bytes.fromhex("5F 50 53 57 5F")
+ACER_OLD_PASSWORD_OFFSET = 0x10
+ACER_OLD_UNLOCK_ZERO_LENGTH = 0x20
+ACER_NEW_PASSWORD_MARKER = bytes.fromhex("5F 55 55 AA AA 5F")
+ACER_NEW_UNLOCK_ZERO_LENGTH = 80
 
 
 @dataclass
@@ -983,19 +988,74 @@ def asus_unlock_output_name(source: Path) -> Path:
     return unique_output_path(source.with_name(f"{source.stem}_UNLOCK{suffix}"))
 
 
-def unlock_asus_password(source: Path, zero_length: int = ASUS_UNLOCK_ZERO_LENGTH) -> tuple[Path, list[tuple[int, int]]]:
+def has_password_payload(region: bytes | bytearray) -> bool:
+    return any(value not in {0x00, 0xFF} for value in region)
+
+
+def unlock_asus_password(source: Path, zero_length: int = ASUS_UNLOCK_ZERO_LENGTH) -> tuple[Path | None, list[tuple[int, int]]]:
     data = bytearray(source.read_bytes())
     cleared_ranges: list[tuple[int, int]] = []
+    markers_found = 0
     marker_offset = data.find(ASUS_AMITSE_MARKER)
     while marker_offset >= 0:
+        markers_found += 1
         start = marker_offset + len(ASUS_AMITSE_MARKER)
         end = min(start + zero_length, len(data))
-        if start < end:
+        if start < end and has_password_payload(data[start:end]):
             data[start:end] = b"\x00" * (end - start)
             cleared_ranges.append((start, end - start))
         marker_offset = data.find(ASUS_AMITSE_MARKER, marker_offset + len(ASUS_AMITSE_MARKER))
-    if not cleared_ranges:
+    if not markers_found:
         raise RuntimeError("Password marker was not found. This file may not use the supported ASUS password layout.")
+    if not cleared_ranges:
+        return None, []
+    output = asus_unlock_output_name(source)
+    output.write_bytes(data)
+    return output, cleared_ranges
+
+
+def zero_after_markers(data: bytearray, marker: bytes, start_delta: int, zero_length: int) -> list[tuple[int, int]]:
+    cleared_ranges: list[tuple[int, int]] = []
+    marker_offset = data.find(marker)
+    while marker_offset >= 0:
+        start = marker_offset + start_delta
+        end = min(start + zero_length, len(data))
+        if start < end and has_password_payload(data[start:end]):
+            data[start:end] = b"\x00" * (end - start)
+            cleared_ranges.append((start, end - start))
+        marker_offset = data.find(marker, marker_offset + len(marker))
+    return cleared_ranges
+
+
+def count_markers(data: bytearray, marker: bytes) -> int:
+    count = 0
+    marker_offset = data.find(marker)
+    while marker_offset >= 0:
+        count += 1
+        marker_offset = data.find(marker, marker_offset + len(marker))
+    return count
+
+
+def unlock_acer_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]]:
+    data = bytearray(source.read_bytes())
+    markers_found = count_markers(data, ACER_OLD_PASSWORD_MARKER) + count_markers(data, ACER_NEW_PASSWORD_MARKER)
+    cleared_ranges = []
+    cleared_ranges.extend(zero_after_markers(
+        data,
+        ACER_OLD_PASSWORD_MARKER,
+        ACER_OLD_PASSWORD_OFFSET,
+        ACER_OLD_UNLOCK_ZERO_LENGTH,
+    ))
+    cleared_ranges.extend(zero_after_markers(
+        data,
+        ACER_NEW_PASSWORD_MARKER,
+        len(ACER_NEW_PASSWORD_MARKER),
+        ACER_NEW_UNLOCK_ZERO_LENGTH,
+    ))
+    if not markers_found:
+        raise RuntimeError("Password marker was not found. This file may not use the supported ACER password layout.")
+    if not cleared_ranges:
+        return None, []
     output = asus_unlock_output_name(source)
     output.write_bytes(data)
     return output, cleared_ranges
@@ -1457,10 +1517,34 @@ def command_unlock_asus(args: argparse.Namespace) -> int:
                 failed += 1
                 continue
             output, _cleared_ranges = unlock_asus_password(path, args.length)
-            print(f"  Output: {log_path_name(output)}", flush=True)
+            if output:
+                print(f"  Output: {log_path_name(output)}", flush=True)
+            else:
+                print("  No password found", flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Unlock ASUS failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_unlock_acer(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Unlock ACER in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            output, _cleared_ranges = unlock_acer_password(path)
+            if output:
+                print(f"  Output: {log_path_name(output)}", flush=True)
+            else:
+                print("  No password found", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Unlock ACER failed: {exc}", flush=True)
     return 0 if failed == 0 else 2
 
 
@@ -1513,6 +1597,10 @@ def build_parser() -> argparse.ArgumentParser:
     unlock.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
     unlock.add_argument("--length", type=int, default=ASUS_UNLOCK_ZERO_LENGTH, help=argparse.SUPPRESS)
     unlock.set_defaults(func=command_unlock_asus)
+
+    unlock_acer = sub.add_parser("unlock-acer", help="Clear ACER BIOS password.")
+    unlock_acer.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
+    unlock_acer.set_defaults(func=command_unlock_acer)
     return p
 
 

@@ -46,6 +46,7 @@ FALLBACK_TEXT = {
         "fit": "FIT",
         "winkey": "Win Key",
         "unlock_asus": "Unlock ASUS",
+        "unlock_acer": "Unlock ACER",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Save log",
@@ -92,6 +93,7 @@ FALLBACK_TEXT = {
         "fit": "FIT",
         "winkey": "Win Key",
         "unlock_asus": "Mở khóa ASUS",
+        "unlock_acer": "Mở khóa ACER",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Lưu log",
@@ -266,14 +268,16 @@ class ClearMeGui(tk.Tk):
         actions = ttk.Frame(form)
         actions.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(12, 0))
         actions.columnconfigure(2, weight=1)
+        self.unlock_acer_button = ttk.Button(actions, command=self.start_unlock_acer)
+        self.unlock_acer_button.grid(row=0, column=3, padx=(8, 0))
         self.unlock_asus_button = ttk.Button(actions, command=self.start_unlock_asus)
-        self.unlock_asus_button.grid(row=0, column=3, padx=(8, 0))
+        self.unlock_asus_button.grid(row=0, column=4, padx=(8, 0))
         self.winkey_button = ttk.Button(actions, command=self.start_find_winkey)
-        self.winkey_button.grid(row=0, column=4, padx=(8, 0))
+        self.winkey_button.grid(row=0, column=5, padx=(8, 0))
         self.clear_button = ttk.Button(actions, command=self.start_clear)
-        self.clear_button.grid(row=0, column=5, padx=(8, 0))
+        self.clear_button.grid(row=0, column=6, padx=(8, 0))
         self.status_var = tk.StringVar(value="")
-        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=6, sticky="w", pady=(8, 0))
+        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=7, sticky="w", pady=(8, 0))
 
         log_frame = ttk.LabelFrame(content, padding=10)
         self.ui["log_frame"] = log_frame
@@ -353,6 +357,7 @@ class ClearMeGui(tk.Tk):
         self.tabs.tab(1, text=self.t("dual_bios"))
         self.winkey_button.configure(text=self.t("winkey"))
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
+        self.unlock_acer_button.configure(text=self.t("unlock_acer"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -644,17 +649,23 @@ class ClearMeGui(tk.Tk):
         threading.Thread(target=self.run_command, args=(cmd, "WINKEY_DONE"), daemon=True).start()
 
     def start_unlock_asus(self) -> None:
+        self.start_unlock_vendor("ASUS", "unlock-asus", self.unlock_asus_button, "UNLOCK_ASUS_DONE")
+
+    def start_unlock_acer(self) -> None:
+        self.start_unlock_vendor("ACER", "unlock-acer", self.unlock_acer_button, "UNLOCK_ACER_DONE")
+
+    def start_unlock_vendor(self, vendor: str, command: str, button: ttk.Button, done_tag: str) -> None:
         files = self.selected_bios_files()
         if not files:
-            self.log_info("Unlock ASUS skipped: please select file(s) first")
+            self.log_info(f"Unlock {vendor} skipped: please select file(s) first")
             return
-        self.unlock_asus_button.configure(state="disabled")
+        button.configure(state="disabled")
         self.status_var.set(self.t("running"))
-        self.last_unlock_asus_result = ""
-        cmd = self.engine_cmd("unlock-asus")
+        self.last_unlock_result = ""
+        cmd = self.engine_cmd(command)
         for path in files:
             cmd.extend(["--input", path])
-        threading.Thread(target=self.run_command, args=(cmd, "UNLOCK_ASUS_DONE"), daemon=True).start()
+        threading.Thread(target=self.run_command, args=(cmd, done_tag), daemon=True).start()
 
     def start_clear(self) -> None:
         if not self.validate():
@@ -722,8 +733,8 @@ class ClearMeGui(tk.Tk):
                 self.last_analyze_result += line
             elif done_tag == "WINKEY_DONE":
                 self.queue.put(line)
-            elif done_tag == "UNLOCK_ASUS_DONE":
-                self.last_unlock_asus_result += line
+            elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE"}:
+                self.last_unlock_result += line
                 self.queue.put(line)
             else:
                 self.last_result += line
@@ -784,7 +795,10 @@ class ClearMeGui(tk.Tk):
             self.handle_winkey_done(code)
             return
         if tag == "UNLOCK_ASUS_DONE":
-            self.handle_unlock_asus_done(code)
+            self.handle_unlock_done(code, self.unlock_asus_button, "ASUS")
+            return
+        if tag == "UNLOCK_ACER_DONE":
+            self.handle_unlock_done(code, self.unlock_acer_button, "ACER")
             return
         self.handle_clear_done(code)
 
@@ -794,14 +808,15 @@ class ClearMeGui(tk.Tk):
         if code != 0:
             self.log_error(f"Find WinKey stopped with exit code {code}.")
 
-    def handle_unlock_asus_done(self, code: int) -> None:
-        self.unlock_asus_button.configure(state="normal")
-        self.status_var.set(self.t("clear_complete") if code == 0 else self.t("error"))
+    def handle_unlock_done(self, code: int, button: ttk.Button, vendor: str) -> None:
+        button.configure(state="normal")
         if code != 0:
-            self.log_error(f"Unlock ASUS stopped with exit code {code}.")
+            self.status_var.set(self.t("error"))
+            self.log_error(f"Unlock {vendor} stopped with exit code {code}.")
             return
+        self.status_var.set(self.t("ready") if "No password found" in self.last_unlock_result else self.t("clear_complete"))
         outputs = []
-        for line in self.last_unlock_asus_result.splitlines():
+        for line in self.last_unlock_result.splitlines():
             if line.strip().startswith("Output:"):
                 name = line.split(":", 1)[1].strip()
                 for source in self.selected_bios_files():
@@ -841,7 +856,7 @@ class ClearMeGui(tk.Tk):
         if code != 0:
             self.status_var.set(self.t("analyze_failed"))
             self.reset_analysis()
-            details = "\n".join(self.last_analyze_result.strip().splitlines()[-6:])
+            details = self.short_analyze_error(self.last_analyze_result)
             message = f"Analyze stopped with exit code {code}."
             if details:
                 message += "\n" + details
@@ -870,6 +885,24 @@ class ClearMeGui(tk.Tk):
         self.status_var.set(self.t("analyze_success"))
         self.set_candidates(payload.get("rgn_candidates", []), payload.get("fitc_candidates", []))
         self.log_info(summary)
+
+    def short_analyze_error(self, output: str) -> str:
+        lines = [line.strip() for line in output.strip().splitlines() if line.strip()]
+        if not lines:
+            return ""
+        for prefix in ("RuntimeError:", "ValueError:", "Error:"):
+            for line in reversed(lines):
+                if prefix in line:
+                    return line.split(prefix, 1)[1].strip()
+        useful = [
+            line for line in lines
+            if not line.startswith("File ")
+            and not line.startswith("Traceback")
+            and not line.startswith("^")
+            and not line.startswith("return ")
+            and not line.startswith("raise ")
+        ]
+        return useful[-1] if useful else lines[-1]
 
     def set_candidates(self, rgn_candidates: list[dict], fit_candidates: list[dict]) -> None:
         self.rgn_choices = self.build_choice_map(rgn_candidates)
