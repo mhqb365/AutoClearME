@@ -15,6 +15,7 @@ It deliberately refuses to overwrite the source image.
 from __future__ import annotations
 
 import argparse
+import base64
 import ctypes
 import datetime as _dt
 import json
@@ -88,6 +89,12 @@ class WinKeyCandidate:
     key: str
     length: int = 29
     classification: str = ""
+
+
+@dataclass
+class LenovoDmiItem:
+    label: str
+    value: str
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
@@ -580,6 +587,205 @@ def add_lenovo_lenv_matches(buffer: bytes, by_offset: dict[int, WinKeyCandidate]
                 entry_offset += 0x18 + data_size
         if not found_entry:
             add_winkey_range_matches(body, 0, len(body), "Lenovo LENV XOR DMI", by_offset, block_offset + 0x10)
+
+
+def lenovo_lenv_bodies(buffer: bytes) -> list[tuple[bytes, int]]:
+    bodies = []
+    for block_offset in find_all_bytes(buffer, b"LENV"):
+        if block_offset + 0x10 >= len(buffer):
+            continue
+        block_length = min(0x1000, len(buffer) - block_offset)
+        xor_key = buffer[block_offset + 0x0D]
+        entry_count = int.from_bytes(buffer[block_offset + 0x08:block_offset + 0x0C], "little", signed=False)
+        bodies.append((bytes(value ^ xor_key for value in buffer[block_offset + 0x10:block_offset + block_length]), entry_count))
+    return bodies
+
+
+def lenovo_lenv_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = []
+    for block_offset in find_all_bytes(buffer, b"LENV"):
+        block_length = min(0x1000, len(buffer) - block_offset)
+        if block_length >= 0x10:
+            blocks.append((block_offset, buffer[block_offset:block_offset + block_length]))
+    return blocks
+
+
+LENOVO_STANDARD_DMI_MARKERS = (b"_SM_", b"_SM3_", b"SMBIOS", b"MSDM", b"SLIC")
+LENOVO_FALLBACK_ANCHORS = (b"SDK0J", b"SDK0L", b" WIN")
+LENOVO_FALLBACK_WINDOW = 0x400
+LENOVO_FALLBACK_BLOCK_SIZE = 0x1000
+
+
+def has_standard_dmi_marker(buffer: bytes) -> bool:
+    return any(marker in buffer for marker in LENOVO_STANDARD_DMI_MARKERS)
+
+
+def lenovo_fallback_anchor_offsets(buffer: bytes) -> list[int]:
+    offsets = []
+    for anchor in LENOVO_FALLBACK_ANCHORS:
+        offsets.extend(find_all_bytes(buffer, anchor))
+    offsets.extend(match.start() for match in WINKEY_PATTERN.finditer(buffer))
+    return sorted(set(offsets))
+
+
+def lenovo_fallback_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    if has_standard_dmi_marker(buffer):
+        return []
+    offsets = lenovo_fallback_anchor_offsets(buffer)
+    blocks = []
+    used_ranges: list[tuple[int, int]] = []
+    for offset in offsets:
+        nearby = [candidate for candidate in offsets if abs(candidate - offset) <= LENOVO_FALLBACK_WINDOW]
+        if len(nearby) < 2:
+            continue
+        start = max(0, min(nearby) & ~(LENOVO_FALLBACK_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + LENOVO_FALLBACK_BLOCK_SIZE)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        used_ranges.append((start, end))
+        blocks.append((start, buffer[start:end]))
+    return blocks
+
+
+def lenovo_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = lenovo_lenv_blocks(buffer)
+    return blocks if blocks else lenovo_fallback_blocks(buffer)
+
+
+def lenovo_dmi_export_name(source: Path) -> Path:
+    return unique_output_path(source.with_name(f"{source.stem}_LENOVO_DMI.lendmi"))
+
+
+def lenovo_dmi_import_output_name(target: Path) -> Path:
+    suffix = target.suffix or ".bin"
+    return unique_output_path(target.with_name(f"{target.stem}_LENOVO_DMI{suffix}"))
+
+
+def export_lenovo_dmi(source: Path) -> tuple[Path, int]:
+    blocks = lenovo_dmi_blocks(source.read_bytes())
+    if not blocks:
+        raise RuntimeError("Lenovo DMI block was not found.")
+    payload = {
+        "format": "AutoClearME Lenovo DMI",
+        "version": 1,
+        "blocks": [base64.b64encode(block).decode("ascii") for _offset, block in blocks],
+    }
+    output = lenovo_dmi_export_name(source)
+    output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output, len(blocks)
+
+
+def load_lenovo_dmi_package(path: Path) -> list[bytes]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("format") != "AutoClearME Lenovo DMI":
+        raise RuntimeError("Invalid Lenovo DMI package.")
+    blocks = payload.get("blocks")
+    if not isinstance(blocks, list) or not blocks:
+        raise RuntimeError("Lenovo DMI package does not contain any block.")
+    return [base64.b64decode(str(block)) for block in blocks]
+
+
+def import_lenovo_dmi(target: Path, dmi_package: Path) -> tuple[Path, int]:
+    blocks = load_lenovo_dmi_package(dmi_package)
+    data = bytearray(target.read_bytes())
+    target_blocks = lenovo_dmi_blocks(data)
+    if len(target_blocks) < len(blocks):
+        raise RuntimeError(f"Target BIOS has {len(target_blocks)} Lenovo DMI block(s), package has {len(blocks)}.")
+    for index, block in enumerate(blocks):
+        offset, target_block = target_blocks[index]
+        if len(block) != len(target_block):
+            raise RuntimeError("Lenovo DMI block size does not match target BIOS.")
+        data[offset:offset + len(block)] = block
+    output = lenovo_dmi_import_output_name(target)
+    output.write_bytes(data)
+    return output, len(blocks)
+
+
+LENOVO_DMI_LABELS = {
+    0x0000: "Product Name",
+    0x0001: "Board ID",
+    0x0002: "MTM",
+    0x0003: "System ID",
+    0x0004: "Serial Number",
+    0x000F: "Platform ID",
+    0x0010: "OS",
+    0x0100: "Windows Key",
+    0x0B00: "UUID/ID",
+}
+
+
+def lenovo_lenv_payloads(body: bytes, entry_count: int) -> list[tuple[int, bytes]]:
+    payloads = []
+    entry_offset = 0
+    if not 0 < entry_count <= 256:
+        entry_count = 256
+    for _entry_index in range(entry_count):
+        if entry_offset + 0x18 > len(body):
+            break
+        data_size = int.from_bytes(body[entry_offset + 0x10:entry_offset + 0x14], "little", signed=False)
+        if data_size <= 0 or data_size > len(body) - entry_offset - 0x18:
+            break
+        entry_id = int.from_bytes(body[entry_offset + 0x0E:entry_offset + 0x10], "big", signed=False)
+        payloads.append((entry_id, body[entry_offset + 0x18:entry_offset + 0x18 + data_size]))
+        entry_offset += 0x18 + data_size
+    return payloads
+
+
+def clean_lenovo_dmi_value(value: str) -> str:
+    value = value.strip().strip("\x00")
+    return value[:-2] if value.endswith("UW") else value
+
+
+def lenovo_dmi_label(value: str) -> str:
+    if WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
+        return "Windows Key"
+    if re.fullmatch(r"[A-Z0-9]{7,10}", value) and not value.startswith(("82", "SDK")):
+        return "Serial"
+    if value.startswith("82") and re.fullmatch(r"[A-Z0-9]{8,12}", value):
+        return "MTM"
+    if value.startswith("SDK"):
+        return "Platform ID"
+    if re.search(r"(Think|Idea|Yoga|Legion|Lenovo)", value, re.IGNORECASE):
+        return "Product"
+    if re.fullmatch(r"[0-9]{13,16}", value):
+        return "UUID/ID"
+    if value.startswith("LNV"):
+        return "Board"
+    return "DMI"
+
+
+def lenovo_dmi_entry_label(entry_id: int, value: str) -> str:
+    return LENOVO_DMI_LABELS.get(entry_id) or lenovo_dmi_label(value)
+
+
+def find_lenovo_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    items: list[LenovoDmiItem] = []
+    seen = set()
+    for body, entry_count in lenovo_lenv_bodies(buffer):
+        for entry_id, payload in lenovo_lenv_payloads(body, entry_count):
+            for match in re.findall(rb"[ -~]{3,}", payload):
+                value = clean_lenovo_dmi_value(match.decode("ascii", errors="ignore"))
+                if not value or value in seen:
+                    continue
+                seen.add(value)
+                items.append(LenovoDmiItem(lenovo_dmi_entry_label(entry_id, value), value))
+    if items:
+        return items
+    for _offset, block in lenovo_fallback_blocks(buffer):
+        for match in re.findall(rb"[ -~]{3,}", block):
+            value = clean_lenovo_dmi_value(match.decode("ascii", errors="ignore"))
+            if not value or value in seen:
+                continue
+            if not (
+                value.startswith(("SDK0J", "SDK0L"))
+                or value == "WIN"
+                or value.endswith(" WIN")
+                or WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore"))
+            ):
+                continue
+            seen.add(value)
+            items.append(LenovoDmiItem(lenovo_dmi_label(value), value.strip()))
+    return items
 
 
 def find_winkeys(buffer: bytes) -> list[WinKeyCandidate]:
@@ -1506,6 +1712,53 @@ def command_winkey(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 2
 
 
+def command_lenovo_dmi(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Finding Lenovo DMI in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            items = find_lenovo_dmi(path.read_bytes())
+            if not items:
+                print("  No Lenovo DMI found", flush=True)
+                continue
+            for item in items:
+                print(f"  {item.label}: {item.value}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Find Lenovo DMI failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_lenovo_dmi_export(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    print(f"[INFO] Export Lenovo DMI from {log_path_name(path)}", flush=True)
+    if not path.exists():
+        raise RuntimeError(f"File does not exist: {log_path_name(path)}")
+    output, count = export_lenovo_dmi(path)
+    print(f"  Blocks: {count}", flush=True)
+    print(f"  Output: {log_path_name(output)}", flush=True)
+    return 0
+
+
+def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
+    target = Path(args.target).resolve()
+    package = Path(args.dmi).resolve()
+    print(f"[INFO] Import Lenovo DMI into {log_path_name(target)}", flush=True)
+    if not target.exists():
+        raise RuntimeError(f"Target BIOS does not exist: {log_path_name(target)}")
+    if not package.exists():
+        raise RuntimeError(f"Lenovo DMI package does not exist: {log_path_name(package)}")
+    output, count = import_lenovo_dmi(target, package)
+    print(f"  Blocks: {count}", flush=True)
+    print(f"  Output: {log_path_name(output)}", flush=True)
+    return 0
+
+
 def command_unlock_asus(args: argparse.Namespace) -> int:
     failed = 0
     for value in args.input:
@@ -1592,6 +1845,19 @@ def build_parser() -> argparse.ArgumentParser:
     winkey = sub.add_parser("winkey", help="Find plaintext Windows product key candidates in BIOS dump(s).")
     winkey.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
     winkey.set_defaults(func=command_winkey)
+
+    lenovo_dmi = sub.add_parser("lenovo-dmi", help="Find Lenovo DMI data in BIOS dump(s).")
+    lenovo_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
+    lenovo_dmi.set_defaults(func=command_lenovo_dmi)
+
+    lenovo_export = sub.add_parser("lenovo-dmi-export", help="Export Lenovo DMI blocks to a .lendmi package.")
+    lenovo_export.add_argument("--input", required=True, help="Source BIOS dump.")
+    lenovo_export.set_defaults(func=command_lenovo_dmi_export)
+
+    lenovo_import = sub.add_parser("lenovo-dmi-import", help="Import Lenovo DMI blocks into another BIOS dump.")
+    lenovo_import.add_argument("--dmi", required=True, help="Lenovo DMI .lendmi package.")
+    lenovo_import.add_argument("--target", required=True, help="Target BIOS dump.")
+    lenovo_import.set_defaults(func=command_lenovo_dmi_import)
 
     unlock = sub.add_parser("unlock-asus", help="Clear ASUS BIOS password.")
     unlock.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
