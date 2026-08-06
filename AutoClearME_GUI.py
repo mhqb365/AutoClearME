@@ -40,19 +40,22 @@ FALLBACK_TEXT = {
         "single_bios": "Single BIOS",
         "dual_bios": "Dual BIOS",
         "lenovo_dmi_tab": "Lenovo DMI",
+        "hp_dmi_tab": "HP DMI",
         "bios_file": "BIOS file",
         "bios_file_1": "BIOS file 1",
         "bios_file_2": "BIOS file 2",
         "source_bios": "Source BIOS",
         "dmi_package": "DMI package",
         "target_bios": "Target BIOS",
-        "import_dmi": "Import DMI",
+        "import_dmi": "Import Lenovo DMI",
+        "import_hp_dmi": "Import HP DMI",
         "me_region": "ME Region",
         "fit": "FIT",
         "winkey": "Win Key",
         "unlock_asus": "Unlock ASUS",
         "unlock_acer": "Unlock ACER",
         "lenovo_dmi": "Lenovo DMI",
+        "hp_dmi": "HP DMI",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Save log",
@@ -96,6 +99,7 @@ FALLBACK_TEXT = {
         "single_bios": "BIOS đơn",
         "dual_bios": "BIOS kép",
         "lenovo_dmi_tab": "Lenovo DMI",
+        "hp_dmi_tab": "HP DMI",
         "bios_file": "File BIOS",
         "bios_file_1": "File BIOS 1",
         "bios_file_2": "File BIOS 2",
@@ -103,12 +107,14 @@ FALLBACK_TEXT = {
         "dmi_package": "Gói DMI",
         "target_bios": "BIOS đích",
         "import_dmi": "Nhập DMI",
+        "import_hp_dmi": "Nhập HP DMI",
         "me_region": "ME Region",
         "fit": "FIT",
         "winkey": "Win Key",
         "unlock_asus": "Mở khóa ASUS",
         "unlock_acer": "Mở khóa ACER",
         "lenovo_dmi": "Lenovo DMI",
+        "hp_dmi": "HP DMI",
         "clear_me": "Clear ME",
         "log": "Log",
         "save_log": "Lưu log",
@@ -173,7 +179,7 @@ def load_language_bundle() -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     labels = {"English": "en", "Tiếng Việt": "vi"}
     text = dict(FALLBACK_TEXT)
     try:
-        data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8-sig"))
     except Exception:
         return text, labels
     loaded_text = data.get("text") if isinstance(data, dict) else None
@@ -200,7 +206,8 @@ class ClearMeGui(tk.Tk):
         self.queue: queue.Queue[str | tuple[str, object]] = queue.Queue()
         self.last_result = ""
         self.last_analyze_result = ""
-        self.last_lenovo_dmi_files: list[str] = []
+        self.last_oem_dmi_files: list[str] = []
+        self.last_oem_dmi_vendor = ""
         self.analyzed_signature: tuple[str, ...] = ()
         self.analyzed_detected: dict = {}
         self.rgn_choices: dict[str, str] = {}
@@ -218,6 +225,8 @@ class ClearMeGui(tk.Tk):
             "dual_file2": tk.StringVar(),
             "dmi_package": tk.StringVar(),
             "dmi_target": tk.StringVar(),
+            "hp_dmi_package": tk.StringVar(),
+            "hp_dmi_target": tk.StringVar(),
             "rgn_choice": tk.StringVar(),
             "fit_choice": tk.StringVar(),
             "chip1_size": tk.StringVar(value="8MB"),
@@ -285,15 +294,13 @@ class ClearMeGui(tk.Tk):
         self.select_row(dual_tab, 3, "fit", "fit_choice")
         tabs.add(dual_tab, text="")
 
-        dmi_tab = ttk.Frame(tabs, padding=10)
-        dmi_tab.columnconfigure(1, weight=1)
-        self.path_row(dmi_tab, 0, "target_bios", "dmi_target", self.pick_input, clearable=True)
-        self.path_row(dmi_tab, 1, "dmi_package", "dmi_package", self.pick_dmi_package, clearable=True)
-        dmi_actions = ttk.Frame(dmi_tab)
-        dmi_actions.grid(row=2, column=0, columnspan=4, sticky="e", pady=(8, 0))
-        self.import_dmi_button = ttk.Button(dmi_actions, command=self.start_import_lenovo_dmi)
-        self.import_dmi_button.grid(row=0, column=0)
+        dmi_tab = self.build_dmi_import_tab(tabs, "dmi_target", "dmi_package", self.start_import_lenovo_dmi)
+        self.import_dmi_button = dmi_tab.import_button
         tabs.add(dmi_tab, text="")
+
+        hp_dmi_tab = self.build_dmi_import_tab(tabs, "hp_dmi_target", "hp_dmi_package", self.start_import_hp_dmi)
+        self.import_hp_dmi_button = hp_dmi_tab.import_button
+        tabs.add(hp_dmi_tab, text="")
         self.tabs = tabs
 
         actions = ttk.Frame(form)
@@ -305,12 +312,14 @@ class ClearMeGui(tk.Tk):
         self.unlock_asus_button.grid(row=0, column=4, padx=(8, 0))
         self.lenovo_dmi_button = ttk.Button(actions, command=self.start_find_lenovo_dmi)
         self.lenovo_dmi_button.grid(row=0, column=5, padx=(8, 0))
+        self.hp_dmi_button = ttk.Button(actions, command=self.start_find_hp_dmi)
+        self.hp_dmi_button.grid(row=0, column=6, padx=(8, 0))
         self.winkey_button = ttk.Button(actions, command=self.start_find_winkey)
-        self.winkey_button.grid(row=0, column=6, padx=(8, 0))
+        self.winkey_button.grid(row=0, column=7, padx=(8, 0))
         self.clear_button = ttk.Button(actions, command=self.start_clear)
-        self.clear_button.grid(row=0, column=7, padx=(8, 0))
+        self.clear_button.grid(row=0, column=8, padx=(8, 0))
         self.status_var = tk.StringVar(value="")
-        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=8, sticky="w", pady=(8, 0))
+        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=9, sticky="w", pady=(8, 0))
 
         log_frame = ttk.LabelFrame(content, padding=10)
         self.ui["log_frame"] = log_frame
@@ -350,6 +359,17 @@ class ClearMeGui(tk.Tk):
                 row=row, column=3, sticky="ew", padx=(6, 0), pady=3
             )
 
+    def build_dmi_import_tab(self, tabs: ttk.Notebook, target_key: str, package_key: str, command) -> ttk.Frame:
+        tab = ttk.Frame(tabs, padding=10)
+        tab.columnconfigure(1, weight=1)
+        self.path_row(tab, 0, "target_bios", target_key, self.pick_input, clearable=True)
+        self.path_row(tab, 1, "dmi_package", package_key, self.pick_dmi_package, clearable=True)
+        actions = ttk.Frame(tab)
+        actions.grid(row=2, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        tab.import_button = ttk.Button(actions, command=command)
+        tab.import_button.grid(row=0, column=0)
+        return tab
+
     def select_row(self, parent: ttk.Frame, row: int, label_key: str, key: str) -> None:
         parent.rowconfigure(row, minsize=self.control_row_height)
         label = ttk.Label(parent)
@@ -369,7 +389,7 @@ class ClearMeGui(tk.Tk):
 
     def on_tab_changed(self, _event=None) -> None:
         tab_index = self.tabs.index("current")
-        if tab_index == 2:
+        if tab_index >= 2:
             self.reset_analysis()
             self.status_var.set(self.t("ready"))
             return
@@ -394,11 +414,14 @@ class ClearMeGui(tk.Tk):
         self.tabs.tab(0, text=self.t("single_bios"))
         self.tabs.tab(1, text=self.t("dual_bios"))
         self.tabs.tab(2, text=self.t("lenovo_dmi_tab"))
+        self.tabs.tab(3, text=self.t("hp_dmi_tab"))
         self.import_dmi_button.configure(text=self.t("import_dmi"))
+        self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.winkey_button.configure(text=self.t("winkey"))
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.unlock_acer_button.configure(text=self.t("unlock_acer"))
         self.lenovo_dmi_button.configure(text=self.t("lenovo_dmi"))
+        self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -555,7 +578,7 @@ class ClearMeGui(tk.Tk):
     def pick_dmi_package(self, key: str) -> None:
         path = filedialog.askopenfilename(
             title=self.t("dmi_package"),
-            filetypes=[("Lenovo DMI package", "*.lendmi"), ("All files", "*.*")],
+            filetypes=[("DMI package", "*.lendmi *.hpdmi"), ("All files", "*.*")],
         )
         if path:
             self.input_paths[key] = path
@@ -691,35 +714,52 @@ class ClearMeGui(tk.Tk):
         self.start_find_info("Win Key", "winkey", self.winkey_button, "WINKEY_DONE")
 
     def start_find_lenovo_dmi(self) -> None:
+        self.start_find_oem_dmi("Lenovo", "lenovo-dmi", self.lenovo_dmi_button, "LENOVO_DMI_DONE")
+
+    def start_find_hp_dmi(self) -> None:
+        self.start_find_oem_dmi("HP", "hp-dmi", self.hp_dmi_button, "HP_DMI_DONE")
+
+    def start_find_oem_dmi(self, vendor: str, command: str, button: ttk.Button, done_tag: str) -> None:
         self.last_dmi_transfer_result = ""
-        self.last_lenovo_dmi_files = self.selected_bios_files()
-        self.start_find_info("Lenovo DMI", "lenovo-dmi", self.lenovo_dmi_button, "LENOVO_DMI_DONE")
+        self.last_oem_dmi_files = self.selected_bios_files()
+        self.last_oem_dmi_vendor = vendor
+        self.start_find_info(f"{vendor} DMI", command, button, done_tag)
 
     def start_import_lenovo_dmi(self) -> None:
-        package = self.input_path("dmi_package")
-        target = self.input_path("dmi_target")
+        self.start_import_dmi("Lenovo", "dmi_package", "dmi_target", self.import_dmi_button)
+
+    def start_import_hp_dmi(self) -> None:
+        self.start_import_dmi("HP", "hp_dmi_package", "hp_dmi_target", self.import_hp_dmi_button)
+
+    def start_import_dmi(self, vendor: str, package_key: str, target_key: str, button: ttk.Button) -> None:
+        package = self.input_path(package_key)
+        target = self.input_path(target_key)
         missing = []
         if not package:
             missing.append(self.t("dmi_package"))
         if not target:
             missing.append(self.t("target_bios"))
         if missing:
-            self.log_info("Import Lenovo DMI skipped: missing " + ", ".join(missing))
+            self.log_info(f"Import {vendor} DMI skipped: missing " + ", ".join(missing))
             return
-        self.import_dmi_button.configure(state="disabled")
+        button.configure(state="disabled")
         self.status_var.set(self.t("running"))
         self.last_dmi_transfer_result = ""
+        self.last_oem_dmi_vendor = vendor
         cmd = self.engine_cmd("lenovo-dmi-import", "--dmi", package, "--target", target)
         threading.Thread(target=self.run_command, args=(cmd, "DMI_IMPORT_DONE"), daemon=True).start()
 
     def start_export_checked_lenovo_dmi(self) -> None:
-        source = self.first_lenovo_dmi_source()
+        source = self.first_oem_dmi_source()
         if not source:
             return
-        self.lenovo_dmi_button.configure(state="disabled")
+        vendor = self.last_oem_dmi_vendor or "Lenovo"
+        button = self.hp_dmi_button if vendor == "HP" else self.lenovo_dmi_button
+        button.configure(state="disabled")
         self.status_var.set(self.t("running"))
         self.last_dmi_transfer_result = ""
-        cmd = self.engine_cmd("lenovo-dmi-export", "--input", source)
+        command = "hp-dmi-export" if vendor == "HP" else "lenovo-dmi-export"
+        cmd = self.engine_cmd(command, "--input", source)
         threading.Thread(target=self.run_command, args=(cmd, "DMI_EXPORT_DONE"), daemon=True).start()
 
     def start_find_info(self, label: str, command: str, button: ttk.Button, done_tag: str) -> None:
@@ -819,7 +859,7 @@ class ClearMeGui(tk.Tk):
                 self.last_analyze_result += line
             elif done_tag == "WINKEY_DONE":
                 self.queue.put(line)
-            elif done_tag in {"LENOVO_DMI_DONE", "DMI_EXPORT_DONE"}:
+            elif done_tag in {"LENOVO_DMI_DONE", "HP_DMI_DONE", "DMI_EXPORT_DONE"}:
                 self.last_dmi_transfer_result += line
                 self.queue.put(line)
             elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE"}:
@@ -887,7 +927,10 @@ class ClearMeGui(tk.Tk):
             self.handle_find_info_done(code, self.winkey_button, "Win Key")
             return
         if tag == "LENOVO_DMI_DONE":
-            self.handle_lenovo_dmi_done(code)
+            self.handle_oem_dmi_done(code, self.lenovo_dmi_button, "Lenovo")
+            return
+        if tag == "HP_DMI_DONE":
+            self.handle_oem_dmi_done(code, self.hp_dmi_button, "HP")
             return
         if tag == "DMI_EXPORT_DONE":
             self.handle_dmi_export_done(code)
@@ -909,22 +952,23 @@ class ClearMeGui(tk.Tk):
         if code != 0:
             self.log_error(f"Find {label} stopped with exit code {code}.")
 
-    def handle_lenovo_dmi_done(self, code: int) -> None:
-        self.lenovo_dmi_button.configure(state="normal")
+    def handle_oem_dmi_done(self, code: int, button: ttk.Button, vendor: str) -> None:
+        button.configure(state="normal")
         self.status_var.set(self.t("ready") if code == 0 else self.t("error"))
         if code != 0:
-            self.log_error(f"Find Lenovo DMI stopped with exit code {code}.")
+            self.log_error(f"Find {vendor} DMI stopped with exit code {code}.")
             return
-        if not self.first_lenovo_dmi_source():
+        if not self.first_oem_dmi_source():
             return
-        if messagebox.askyesno("Lenovo DMI", "Lenovo DMI was found. Export DMI package now?", parent=self):
+        if messagebox.askyesno(f"{vendor} DMI", f"{vendor} DMI was found. Export DMI package now?", parent=self):
             self.start_export_checked_lenovo_dmi()
 
     def handle_dmi_export_done(self, code: int) -> None:
         self.lenovo_dmi_button.configure(state="normal")
+        self.hp_dmi_button.configure(state="normal")
         self.status_var.set(self.t("ready") if code == 0 else self.t("error"))
         if code != 0:
-            self.log_error(f"Export Lenovo DMI stopped with exit code {code}.")
+            self.log_error(f"Export {self.last_oem_dmi_vendor or 'OEM'} DMI stopped with exit code {code}.")
             return
         outputs = self.dmi_transfer_outputs()
         if outputs:
@@ -935,9 +979,10 @@ class ClearMeGui(tk.Tk):
 
     def handle_dmi_import_done(self, code: int) -> None:
         self.import_dmi_button.configure(state="normal")
+        self.import_hp_dmi_button.configure(state="normal")
         self.status_var.set(self.t("import_complete") if code == 0 else self.t("error"))
         if code != 0:
-            self.log_error(f"Import Lenovo DMI stopped with exit code {code}.")
+            self.log_error(f"Import {self.last_oem_dmi_vendor or 'OEM'} DMI stopped with exit code {code}.")
             return
         self.open_output_location(self.dmi_transfer_outputs())
 
@@ -1109,21 +1154,22 @@ class ClearMeGui(tk.Tk):
             return
         subprocess.Popen(["explorer", "/select,", str(outputs[0])])
 
-    def first_lenovo_dmi_source(self) -> str:
-        for index, source in enumerate(self.last_lenovo_dmi_files):
+    def first_oem_dmi_source(self) -> str:
+        vendor = self.last_oem_dmi_vendor or "Lenovo"
+        for index, source in enumerate(self.last_oem_dmi_files):
             name = Path(source).name
-            marker = f"[INFO] Finding Lenovo DMI in {name}"
+            marker = f"[INFO] Finding {vendor} DMI in {name}"
             start = self.last_dmi_transfer_result.find(marker)
             if start < 0:
                 continue
             next_start = len(self.last_dmi_transfer_result)
-            if index + 1 < len(self.last_lenovo_dmi_files):
-                next_marker = f"[INFO] Finding Lenovo DMI in {Path(self.last_lenovo_dmi_files[index + 1]).name}"
+            if index + 1 < len(self.last_oem_dmi_files):
+                next_marker = f"[INFO] Finding {vendor} DMI in {Path(self.last_oem_dmi_files[index + 1]).name}"
                 found = self.last_dmi_transfer_result.find(next_marker, start + len(marker))
                 if found >= 0:
                     next_start = found
             section = self.last_dmi_transfer_result[start:next_start]
-            if "No Lenovo DMI found" not in section:
+            if f"No {vendor} DMI found" not in section:
                 return source
         return ""
 
@@ -1132,8 +1178,10 @@ class ClearMeGui(tk.Tk):
         source_dirs = [
             self.input_path("dmi_target"),
             self.input_path("dmi_package"),
+            self.input_path("hp_dmi_target"),
+            self.input_path("hp_dmi_package"),
             *self.selected_bios_files(),
-            *self.last_lenovo_dmi_files,
+            *self.last_oem_dmi_files,
         ]
         for line in self.last_dmi_transfer_result.splitlines():
             if line.strip().startswith("Output:"):

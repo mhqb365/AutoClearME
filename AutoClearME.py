@@ -661,44 +661,147 @@ def lenovo_dmi_import_output_name(target: Path) -> Path:
     return unique_output_path(target.with_name(f"{target.stem}_LENOVO_DMI{suffix}"))
 
 
+HP_DMI_ANCHORS = (
+    b"Hewlett-Packard",
+    b"HP Inc.",
+    b"HPQ",
+    b"Serial Number",
+    b"Product Name",
+    b"Product Number",
+    b"SKU Number",
+    b"Feature Byte",
+    b"Build ID",
+    b"System Board",
+    b"System SKU",
+)
+HP_DMI_WINDOW = 0x800
+HP_DMI_BLOCK_SIZE = 0x1000
+HP_MUD_MARKER = "HP_MUD".encode("utf-16le")
+HP_MUD_BLOCK_SIZE = 0x3000
+
+
+def hp_dmi_anchor_offsets(buffer: bytes) -> list[int]:
+    offsets = []
+    lower = buffer.lower()
+    for anchor in HP_DMI_ANCHORS:
+        offsets.extend(find_all_bytes(buffer, anchor))
+        lower_anchor = anchor.lower()
+        if lower_anchor != anchor:
+            offsets.extend(find_all_bytes(lower, lower_anchor))
+    offsets.extend(match.start() for match in WINKEY_PATTERN.finditer(buffer))
+    return sorted(set(offsets))
+
+
+def hp_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    mud_blocks = hp_mud_blocks(buffer)
+    if mud_blocks:
+        return mud_blocks
+    offsets = hp_dmi_anchor_offsets(buffer)
+    blocks = []
+    used_ranges: list[tuple[int, int]] = []
+    for offset in offsets:
+        nearby = [candidate for candidate in offsets if abs(candidate - offset) <= HP_DMI_WINDOW]
+        if len(nearby) < 2:
+            continue
+        start = max(0, min(nearby) & ~(HP_DMI_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + HP_DMI_BLOCK_SIZE)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        used_ranges.append((start, end))
+        blocks.append((start, buffer[start:end]))
+    return blocks
+
+
+def hp_mud_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = []
+    used_ranges: list[tuple[int, int]] = []
+    for offset in find_all_bytes(buffer, HP_MUD_MARKER):
+        start = max(0, offset & ~(HP_DMI_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + HP_MUD_BLOCK_SIZE)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        block = buffer[start:end]
+        if "HP_MUD".encode("utf-16le") in block and (
+            "BuildId".encode("utf-16le") in block or "FactoryConfig".encode("utf-16le") in block
+        ):
+            used_ranges.append((start, end))
+            blocks.append((start, block))
+    return blocks
+
+
+def hp_dmi_export_name(source: Path) -> Path:
+    return unique_output_path(source.with_name(f"{source.stem}_HP_DMI.hpdmi"))
+
+
+def hp_dmi_import_output_name(target: Path) -> Path:
+    suffix = target.suffix or ".bin"
+    return unique_output_path(target.with_name(f"{target.stem}_HP_DMI{suffix}"))
+
+
+def dmi_package_payload(kind: str, blocks: list[tuple[int, bytes]]) -> dict:
+    return {
+        "format": f"AutoClearME {kind} DMI",
+        "version": 1,
+        "kind": kind,
+        "blocks": [base64.b64encode(block).decode("ascii") for _offset, block in blocks],
+    }
+
+
 def export_lenovo_dmi(source: Path) -> tuple[Path, int]:
     blocks = lenovo_dmi_blocks(source.read_bytes())
     if not blocks:
         raise RuntimeError("Lenovo DMI block was not found.")
-    payload = {
-        "format": "AutoClearME Lenovo DMI",
-        "version": 1,
-        "blocks": [base64.b64encode(block).decode("ascii") for _offset, block in blocks],
-    }
+    payload = dmi_package_payload("Lenovo", blocks)
     output = lenovo_dmi_export_name(source)
     output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return output, len(blocks)
 
 
-def load_lenovo_dmi_package(path: Path) -> list[bytes]:
+def export_hp_dmi(source: Path) -> tuple[Path, int]:
+    blocks = hp_dmi_blocks(source.read_bytes())
+    if not blocks:
+        raise RuntimeError("HP DMI block was not found.")
+    payload = dmi_package_payload("HP", blocks)
+    output = hp_dmi_export_name(source)
+    output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output, len(blocks)
+
+
+def load_dmi_package(path: Path) -> tuple[str, list[bytes]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    if payload.get("format") != "AutoClearME Lenovo DMI":
-        raise RuntimeError("Invalid Lenovo DMI package.")
+    package_format = payload.get("format")
+    if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI"}:
+        raise RuntimeError("Invalid DMI package.")
     blocks = payload.get("blocks")
     if not isinstance(blocks, list) or not blocks:
-        raise RuntimeError("Lenovo DMI package does not contain any block.")
-    return [base64.b64decode(str(block)) for block in blocks]
+        raise RuntimeError("DMI package does not contain any block.")
+    kind = str(payload.get("kind") or package_format.replace("AutoClearME ", "").replace(" DMI", ""))
+    return kind, [base64.b64decode(str(block)) for block in blocks]
 
 
-def import_lenovo_dmi(target: Path, dmi_package: Path) -> tuple[Path, int]:
-    blocks = load_lenovo_dmi_package(dmi_package)
+def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]:
+    kind, blocks = load_dmi_package(dmi_package)
     data = bytearray(target.read_bytes())
-    target_blocks = lenovo_dmi_blocks(data)
+    if kind.lower() == "hp":
+        target_blocks = hp_dmi_blocks(data)
+        output_name = hp_dmi_import_output_name(target)
+    else:
+        target_blocks = lenovo_dmi_blocks(data)
+        output_name = lenovo_dmi_import_output_name(target)
     if len(target_blocks) < len(blocks):
-        raise RuntimeError(f"Target BIOS has {len(target_blocks)} Lenovo DMI block(s), package has {len(blocks)}.")
+        raise RuntimeError(f"Target BIOS has {len(target_blocks)} {kind} DMI block(s), package has {len(blocks)}.")
     for index, block in enumerate(blocks):
         offset, target_block = target_blocks[index]
         if len(block) != len(target_block):
-            raise RuntimeError("Lenovo DMI block size does not match target BIOS.")
+            raise RuntimeError(f"{kind} DMI block size does not match target BIOS.")
         data[offset:offset + len(block)] = block
-    output = lenovo_dmi_import_output_name(target)
-    output.write_bytes(data)
-    return output, len(blocks)
+    output_name.write_bytes(data)
+    return output_name, len(blocks), kind
+
+
+def import_lenovo_dmi(target: Path, dmi_package: Path) -> tuple[Path, int]:
+    output, count, _kind = import_dmi_package(target, dmi_package)
+    return output, count
 
 
 LENOVO_DMI_LABELS = {
@@ -785,6 +888,132 @@ def find_lenovo_dmi(buffer: bytes) -> list[LenovoDmiItem]:
                 continue
             seen.add(value)
             items.append(LenovoDmiItem(lenovo_dmi_label(value), value.strip()))
+    return items
+
+
+def hp_dmi_label(value: str) -> str:
+    lower = value.lower()
+    if WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
+        return "Windows Key"
+    if "serial" in lower:
+        return "Serial Number"
+    if "product" in lower:
+        return "Product"
+    if "sku" in lower:
+        return "SKU"
+    if "feature" in lower:
+        return "Feature Byte"
+    if "build" in lower:
+        return "Build ID"
+    if "system board" in lower:
+        return "System Board"
+    if value.startswith(("HP", "Hewlett")):
+        return "Vendor"
+    return "HP DMI"
+
+
+def utf16le_strings_with_offsets(buffer: bytes, base_offset: int = 0) -> list[tuple[int, str]]:
+    values = []
+    chars: list[str] = []
+    start: int | None = None
+    for index in range(0, len(buffer) - 1, 2):
+        code = buffer[index] | (buffer[index + 1] << 8)
+        if 32 <= code < 127:
+            if start is None:
+                start = base_offset + index
+            chars.append(chr(code))
+        else:
+            if start is not None and len(chars) >= 3:
+                values.append((start, "".join(chars)))
+            chars = []
+            start = None
+    if start is not None and len(chars) >= 3:
+        values.append((start, "".join(chars)))
+    return values
+
+
+def add_unique_dmi_item(items: list[LenovoDmiItem], seen: set[tuple[str, str]], label: str, value: str) -> None:
+    value = value.strip()
+    key = (label, value)
+    if value and key not in seen:
+        seen.add(key)
+        items.append(LenovoDmiItem(label, value))
+
+
+def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
+    blocks = hp_mud_blocks(buffer)
+    if not blocks:
+        return []
+    items: list[LenovoDmiItem] = []
+    seen: set[tuple[str, str]] = set()
+    strings = utf16le_strings_with_offsets(blocks[0][1], blocks[0][0])
+    values = [value for _offset, value in strings]
+    for index, value in enumerate(values):
+        if value == "HP_MUD" and index + 1 < len(values):
+            add_unique_dmi_item(items, seen, "Serial Number", values[index + 1])
+        elif value == "BuildId" and index + 1 < len(values):
+            add_unique_dmi_item(items, seen, "Build ID", values[index + 1])
+        elif value == "FactoryConfig" and index + 1 < len(values):
+            add_unique_dmi_item(items, seen, "Feature Byte", values[index + 1])
+    for value in values:
+        if value.startswith("HP ") and "Workstation" in value:
+            add_unique_dmi_item(items, seen, "Model", value.removesuffix(" PC"))
+        elif re.fullmatch(r"[A-Z0-9]{6,8}#[A-Z0-9]{3}", value):
+            add_unique_dmi_item(items, seen, "Product ID", value)
+        elif re.fullmatch(r"[A-Z0-9]{12,14}", value) and value.startswith("PK"):
+            add_unique_dmi_item(items, seen, "CT Number", value)
+        elif re.fullmatch(r"T\d{2}", value):
+            add_unique_dmi_item(items, seen, "BIOS ID", value)
+    if not any(item.label == "BIOS ID" for item in items):
+        search_start = buffer.find(HP_MUD_MARKER)
+        search_end = min(len(buffer), search_start + 0x100000) if search_start >= 0 else len(buffer)
+        search_area = buffer[search_start:search_end] if search_start >= 0 else buffer
+        for match in re.finditer(rb"(?<![A-Za-z0-9])T\d{2}(?![A-Za-z0-9])", search_area):
+            value = match.group(0).decode("ascii")
+            if value not in {"TLS"}:
+                add_unique_dmi_item(items, seen, "BIOS ID", value)
+                break
+    for candidate in find_winkeys(buffer):
+        add_unique_dmi_item(items, seen, "Windows Key", candidate.key)
+        break
+    order = {
+        "Model": 0,
+        "Serial Number": 1,
+        "Product ID": 2,
+        "Build ID": 3,
+        "Feature Byte": 4,
+        "CT Number": 5,
+        "BIOS ID": 6,
+        "Windows Key": 7,
+    }
+    return sorted(items, key=lambda item: order.get(item.label, 99))
+
+
+def find_hp_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    mud_items = hp_mud_dmi_items(buffer)
+    if mud_items:
+        return mud_items
+    items: list[LenovoDmiItem] = []
+    seen = set()
+    for _offset, block in hp_dmi_blocks(buffer):
+        for match in re.findall(rb"[ -~]{3,}", block):
+            value = match.decode("ascii", errors="ignore").strip()
+            if not value or value in seen:
+                continue
+            lower = value.lower()
+            if not (
+                value.startswith(("HP", "Hewlett"))
+                or "serial" in lower
+                or "product" in lower
+                or "sku" in lower
+                or "feature" in lower
+                or "build" in lower
+                or "system board" in lower
+                or WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore"))
+            ):
+                continue
+            seen.add(value)
+            items.append(LenovoDmiItem(hp_dmi_label(value), value))
     return items
 
 
@@ -1745,15 +1974,49 @@ def command_lenovo_dmi_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_hp_dmi(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Finding HP DMI in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            items = find_hp_dmi(path.read_bytes())
+            if not items:
+                print("  No HP DMI found", flush=True)
+                continue
+            for item in items:
+                print(f"  {item.label}: {item.value}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Find HP DMI failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_hp_dmi_export(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    print(f"[INFO] Export HP DMI from {log_path_name(path)}", flush=True)
+    if not path.exists():
+        raise RuntimeError(f"File does not exist: {log_path_name(path)}")
+    output, count = export_hp_dmi(path)
+    print(f"  Blocks: {count}", flush=True)
+    print(f"  Output: {log_path_name(output)}", flush=True)
+    return 0
+
+
 def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     package = Path(args.dmi).resolve()
-    print(f"[INFO] Import Lenovo DMI into {log_path_name(target)}", flush=True)
+    print(f"[INFO] Import DMI into {log_path_name(target)}", flush=True)
     if not target.exists():
         raise RuntimeError(f"Target BIOS does not exist: {log_path_name(target)}")
     if not package.exists():
-        raise RuntimeError(f"Lenovo DMI package does not exist: {log_path_name(package)}")
-    output, count = import_lenovo_dmi(target, package)
+        raise RuntimeError(f"DMI package does not exist: {log_path_name(package)}")
+    output, count, kind = import_dmi_package(target, package)
+    print(f"  Type: {kind}", flush=True)
     print(f"  Blocks: {count}", flush=True)
     print(f"  Output: {log_path_name(output)}", flush=True)
     return 0
@@ -1853,6 +2116,14 @@ def build_parser() -> argparse.ArgumentParser:
     lenovo_export = sub.add_parser("lenovo-dmi-export", help="Export Lenovo DMI blocks to a .lendmi package.")
     lenovo_export.add_argument("--input", required=True, help="Source BIOS dump.")
     lenovo_export.set_defaults(func=command_lenovo_dmi_export)
+
+    hp_dmi = sub.add_parser("hp-dmi", help="Find HP DMI data in BIOS dump(s).")
+    hp_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
+    hp_dmi.set_defaults(func=command_hp_dmi)
+
+    hp_export = sub.add_parser("hp-dmi-export", help="Export HP DMI blocks to a .hpdmi package.")
+    hp_export.add_argument("--input", required=True, help="Source BIOS dump.")
+    hp_export.set_defaults(func=command_hp_dmi_export)
 
     lenovo_import = sub.add_parser("lenovo-dmi-import", help="Import Lenovo DMI blocks into another BIOS dump.")
     lenovo_import.add_argument("--dmi", required=True, help="Lenovo DMI .lendmi package.")
