@@ -54,6 +54,7 @@ FALLBACK_TEXT = {
         "winkey": "Win Key",
         "unlock_asus": "Unlock ASUS",
         "unlock_acer": "Unlock ACER",
+        "unlock_hp": "Unlock HP",
         "lenovo_dmi": "Lenovo DMI",
         "hp_dmi": "HP DMI",
         "clear_me": "Clear ME",
@@ -113,6 +114,7 @@ FALLBACK_TEXT = {
         "winkey": "Win Key",
         "unlock_asus": "Mở khóa ASUS",
         "unlock_acer": "Mở khóa ACER",
+        "unlock_hp": "Unlock HP",
         "lenovo_dmi": "Lenovo DMI",
         "hp_dmi": "HP DMI",
         "clear_me": "Clear ME",
@@ -305,21 +307,25 @@ class ClearMeGui(tk.Tk):
 
         actions = ttk.Frame(form)
         actions.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(12, 0))
-        actions.columnconfigure(2, weight=1)
-        self.unlock_acer_button = ttk.Button(actions, command=self.start_unlock_acer)
-        self.unlock_acer_button.grid(row=0, column=3, padx=(8, 0))
-        self.unlock_asus_button = ttk.Button(actions, command=self.start_unlock_asus)
-        self.unlock_asus_button.grid(row=0, column=4, padx=(8, 0))
-        self.lenovo_dmi_button = ttk.Button(actions, command=self.start_find_lenovo_dmi)
-        self.lenovo_dmi_button.grid(row=0, column=5, padx=(8, 0))
-        self.hp_dmi_button = ttk.Button(actions, command=self.start_find_hp_dmi)
-        self.hp_dmi_button.grid(row=0, column=6, padx=(8, 0))
-        self.winkey_button = ttk.Button(actions, command=self.start_find_winkey)
-        self.winkey_button.grid(row=0, column=7, padx=(8, 0))
-        self.clear_button = ttk.Button(actions, command=self.start_clear)
-        self.clear_button.grid(row=0, column=8, padx=(8, 0))
+        actions.columnconfigure(0, weight=1)
+        action_buttons = ttk.Frame(actions)
+        action_buttons.grid(row=0, column=0, sticky="")
+        self.unlock_acer_button = ttk.Button(action_buttons, command=self.start_unlock_acer)
+        self.unlock_acer_button.grid(row=0, column=0, padx=(0, 8))
+        self.unlock_asus_button = ttk.Button(action_buttons, command=self.start_unlock_asus)
+        self.unlock_asus_button.grid(row=0, column=1, padx=(0, 8))
+        self.unlock_hp_button = ttk.Button(action_buttons, command=self.start_unlock_hp)
+        self.unlock_hp_button.grid(row=0, column=2, padx=(0, 8))
+        self.lenovo_dmi_button = ttk.Button(action_buttons, command=self.start_find_lenovo_dmi)
+        self.lenovo_dmi_button.grid(row=0, column=3, padx=(0, 8))
+        self.hp_dmi_button = ttk.Button(action_buttons, command=self.start_find_hp_dmi)
+        self.hp_dmi_button.grid(row=0, column=4, padx=(0, 8))
+        self.winkey_button = ttk.Button(action_buttons, command=self.start_find_winkey)
+        self.winkey_button.grid(row=0, column=5, padx=(0, 8))
+        self.clear_button = ttk.Button(action_buttons, command=self.start_clear)
+        self.clear_button.grid(row=0, column=6)
         self.status_var = tk.StringVar(value="")
-        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, columnspan=9, sticky="w", pady=(8, 0))
+        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, sticky="w", pady=(8, 0))
 
         log_frame = ttk.LabelFrame(content, padding=10)
         self.ui["log_frame"] = log_frame
@@ -420,6 +426,7 @@ class ClearMeGui(tk.Tk):
         self.winkey_button.configure(text=self.t("winkey"))
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.unlock_acer_button.configure(text=self.t("unlock_acer"))
+        self.unlock_hp_button.configure(text=self.t("unlock_hp"))
         self.lenovo_dmi_button.configure(text=self.t("lenovo_dmi"))
         self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.clear_button.configure(text=self.t("clear_me"))
@@ -780,6 +787,9 @@ class ClearMeGui(tk.Tk):
     def start_unlock_acer(self) -> None:
         self.start_unlock_vendor("ACER", "unlock-acer", self.unlock_acer_button, "UNLOCK_ACER_DONE")
 
+    def start_unlock_hp(self) -> None:
+        self.start_unlock_vendor("HP", "unlock-hp", self.unlock_hp_button, "UNLOCK_HP_DONE")
+
     def start_unlock_vendor(self, vendor: str, command: str, button: ttk.Button, done_tag: str) -> None:
         files = self.selected_bios_files()
         if not files:
@@ -862,7 +872,7 @@ class ClearMeGui(tk.Tk):
             elif done_tag in {"LENOVO_DMI_DONE", "HP_DMI_DONE", "DMI_EXPORT_DONE"}:
                 self.last_dmi_transfer_result += line
                 self.queue.put(line)
-            elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE"}:
+            elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE"}:
                 self.last_unlock_result += line
                 self.queue.put(line)
             elif done_tag == "DMI_IMPORT_DONE":
@@ -941,6 +951,9 @@ class ClearMeGui(tk.Tk):
         if tag == "UNLOCK_ACER_DONE":
             self.handle_unlock_done(code, self.unlock_acer_button, "ACER")
             return
+        if tag == "UNLOCK_HP_DONE":
+            self.handle_unlock_done(code, self.unlock_hp_button, "HP")
+            return
         if tag == "DMI_IMPORT_DONE":
             self.handle_dmi_import_done(code)
             return
@@ -992,7 +1005,6 @@ class ClearMeGui(tk.Tk):
             self.status_var.set(self.t("error"))
             self.log_error(f"Unlock {vendor} stopped with exit code {code}.")
             return
-        self.status_var.set(self.t("ready") if "No password found" in self.last_unlock_result else self.t("unlock_complete"))
         outputs = []
         for line in self.last_unlock_result.splitlines():
             if line.strip().startswith("Output:"):
@@ -1002,6 +1014,7 @@ class ClearMeGui(tk.Tk):
                     if candidate.exists():
                         outputs.append(candidate)
                         break
+        self.status_var.set(self.t("unlock_complete") if outputs else self.t("ready"))
         self.open_output_location(outputs)
 
     def handle_clear_done(self, code: int) -> None:

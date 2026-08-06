@@ -6,7 +6,7 @@
   "text": {
     "en": {
       "language": "Language",
-      "subtitle": "A tool to help clear ME BIOS 11 -> 20 and more!",
+      "subtitle": "A tool to help clear ME BIOS 11 -> 20 and more",
       "about": "About",
       "settings": "Settings",
       "bios_files": "BIOS Files",
@@ -27,6 +27,7 @@
       "winkey": "Win Key",
       "unlock_asus": "Unlock ASUS",
       "unlock_acer": "Unlock ACER",
+      "unlock_hp": "Unlock HP",
       "lenovo_dmi": "Lenovo DMI",
       "hp_dmi": "HP DMI",
       "clear_me": "Clear ME",
@@ -65,7 +66,7 @@
     },
     "vi": {
       "language": "Ngôn ngữ",
-      "subtitle": "Công cụ hỗ trợ clear ME BIOS 11 -> 20 và hơn thế nữa!",
+      "subtitle": "Công cụ hỗ trợ clear ME BIOS 11 -> 20 và hơn thế nữa",
       "about": "Giới thiệu",
       "settings": "Cài đặt",
       "bios_files": "File BIOS",
@@ -86,6 +87,7 @@
       "winkey": "Win Key",
       "unlock_asus": "Unlock ASUS",
       "unlock_acer": "Unlock ACER",
+      "unlock_hp": "Unlock HP",
       "lenovo_dmi": "Lenovo DMI",
       "hp_dmi": "HP DMI",
       "clear_me": "Clear ME",

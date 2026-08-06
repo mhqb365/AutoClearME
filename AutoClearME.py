@@ -48,6 +48,10 @@ ACER_OLD_PASSWORD_OFFSET = 0x10
 ACER_OLD_UNLOCK_ZERO_LENGTH = 0x20
 ACER_NEW_PASSWORD_MARKER = bytes.fromhex("5F 55 55 AA AA 5F")
 ACER_NEW_UNLOCK_ZERO_LENGTH = 80
+HP_NVRAM_ACTIVE_MARKER = b"NvramActiveRegn\x00"
+HP_UNLOCK_SCAN_SIZE = 0x1000
+HP_UNLOCK_REQUIRED_MARKERS = (b"H_AuthVar\x00", b"H_SmartCover\x00")
+HP_UNLOCK_OPTIONAL_MARKERS = (b"H_ShrdCrInf\x00", b"H_MeFwEcSts\x00")
 
 
 @dataclass
@@ -1496,6 +1500,38 @@ def unlock_acer_password(source: Path) -> tuple[Path | None, list[tuple[int, int
     return output, cleared_ranges
 
 
+def hp_unlock_region_length(section: bytes | bytearray) -> int:
+    if not all(marker in section for marker in HP_UNLOCK_REQUIRED_MARKERS):
+        return 0
+    if not any(marker in section for marker in HP_UNLOCK_OPTIONAL_MARKERS):
+        return 0
+    last_used = -1
+    for index, value in enumerate(section):
+        if value != 0xFF:
+            last_used = index
+    return last_used + 1 if last_used >= len(HP_NVRAM_ACTIVE_MARKER) else 0
+
+
+def unlock_hp_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]]:
+    data = bytearray(source.read_bytes())
+    cleared_ranges: list[tuple[int, int]] = []
+    markers_found = 0
+    marker_offset = data.find(HP_NVRAM_ACTIVE_MARKER)
+    while marker_offset >= 0:
+        markers_found += 1
+        end = min(marker_offset + HP_UNLOCK_SCAN_SIZE, len(data))
+        clear_length = hp_unlock_region_length(data[marker_offset:end])
+        if clear_length:
+            data[marker_offset:marker_offset + clear_length] = b"\xFF" * clear_length
+            cleared_ranges.append((marker_offset, clear_length))
+        marker_offset = data.find(HP_NVRAM_ACTIVE_MARKER, marker_offset + len(HP_NVRAM_ACTIVE_MARKER))
+    if not markers_found or not cleared_ranges:
+        return None, []
+    output = asus_unlock_output_name(source)
+    output.write_bytes(data)
+    return output, cleared_ranges
+
+
 def clearme_name_for(source: Path, out_root: Path) -> Path:
     suffix = source.suffix or ".bin"
     return unique_output_path(out_root / f"{source.stem}_CLEARME{suffix}")
@@ -2064,6 +2100,27 @@ def command_unlock_acer(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 2
 
 
+def command_unlock_hp(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Unlock HP in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            output, _cleared_ranges = unlock_hp_password(path)
+            if output:
+                print(f"  Output: {log_path_name(output)}", flush=True)
+            else:
+                print("  No password found", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Unlock HP failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Automate Intel CSME 11-20 clean ME preparation.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -2138,6 +2195,10 @@ def build_parser() -> argparse.ArgumentParser:
     unlock_acer = sub.add_parser("unlock-acer", help="Clear ACER BIOS password.")
     unlock_acer.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
     unlock_acer.set_defaults(func=command_unlock_acer)
+
+    unlock_hp = sub.add_parser("unlock-hp", help="Clear HP BIOS password.")
+    unlock_hp.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
+    unlock_hp.set_defaults(func=command_unlock_hp)
     return p
 
 
