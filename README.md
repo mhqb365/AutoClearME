@@ -27,6 +27,10 @@ ME Region and FIT are not distributed with this project. You must prepare them y
 
 Download and extract them, then select the folders in `Settings`
 
+### Contributing
+
+Contribute ideas, new ME & FIT versions or report issues at [Laptop Repair Sharing](https://t.me/LaptopRepairSharing)
+
 ### Download And Run
 
 1. Open the [GitHub Releases](https://github.com/mhqb365/AutoClearME/releases)
@@ -121,6 +125,10 @@ App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME R
 ME Region và FIT không được phân phối kèm dự án này. Bạn tự chuẩn bị hoặc tải những gì tôi có ở đây: [ME Region & FIT](https://drive.google.com/drive/folders/1ocp61oICeFGZuf-J59gpnLO88XGzKvPY?usp=sharing)
 
 Tải về và giải nén, sau đó chọn thư mục trong `Settings`
+
+### Đóng góp
+
+Đóng góp ý kiến, đóng góp ME & FIT mới hoặc báo lỗi tại [Laptop Repair Sharing](https://t.me/LaptopRepairSharing)
 
 ### Tải Về Và Chạy App
 
