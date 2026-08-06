@@ -225,22 +225,19 @@ def parse_mea_output(text: str) -> FirmwareInfo:
 
 
 def parse_filename_info(path: Path) -> FirmwareInfo:
-    m = RGN_RE.search(path.name)
     info = FirmwareInfo()
-    if not m:
-        vm = VERSION_RE.search(path.name)
-        if vm:
-            info.version = vm.group(0)
-            info.major = int(vm.group("major"))
-            info.minor = int(vm.group("minor"))
-        return info
-    info.version = m.group("version")
-    info.sku = sku_from_filename(path.name) or normalize_sku(m.group("sku"))
-    vm = VERSION_RE.search(info.version)
+    name = path.name
+    vm = VERSION_RE.search(name)
     if vm:
+        info.version = vm.group(0)
         info.major = int(vm.group("major"))
         info.minor = int(vm.group("minor"))
-    info.type = "Region"
+    info.sku = sku_from_filename(name)
+    upper = name.upper()
+    if "RGN" in upper:
+        info.type = "Region"
+    elif "EXTR" in upper:
+        info.type = "Extracted"
     return info
 
 
@@ -251,31 +248,34 @@ def normalize_sku(value: str) -> str:
     text = re.sub(r"\bslm\b", "slim", text)
     text = re.sub(r"\bnopdm\b|\bnpdm\b", "npdm", text)
     aliases = {
-        "consumer h": "consumer h",
-        "consumer lp": "consumer lp",
         "consumer h d": "consumer h",
         "consumer lp c": "consumer lp",
-        "corporate h": "corporate h",
-        "corporate lp": "corporate lp",
         "corporate h d": "corporate h",
         "corporate lp c": "corporate lp",
+        "consumer h": "consumer h",
         "consumer lp": "consumer lp",
         "consumer n": "consumer n",
+        "consumer p": "consumer p",
         "corporate h": "corporate h",
         "corporate lp": "corporate lp",
         "corporate n": "corporate n",
+        "corporate p": "corporate p",
         "slim h": "slim h",
         "slim lp": "slim lp",
         "slim n": "slim n",
+        "slim p": "slim p",
         "1.5mb": "1.5mb",
         "5mb": "5mb",
+        "consumer": "consumer",
+        "corporate": "corporate",
         "slim": "slim",
         "h": "h",
         "lp": "lp",
         "n": "n",
+        "p": "p",
     }
     for key, normalized in aliases.items():
-        if key in text:
+        if re.search(rf"(?<![a-z0-9.]){re.escape(key)}(?![a-z0-9.])", text):
             return normalized
     return text
 
@@ -288,6 +288,7 @@ def display_sku(value: str) -> str:
         "lp": "LP",
         "h": "H",
         "n": "N",
+        "p": "P",
         "npdm": "NPDM",
         "1.5mb": "1.5MB",
         "5mb": "5MB",
@@ -319,6 +320,8 @@ def sku_key(value: str) -> tuple[str, str]:
         platform = "h"
     elif "n" in parts:
         platform = "n"
+    elif "p" in parts:
+        platform = "p"
     return family, platform
 
 
@@ -335,25 +338,18 @@ def sku_matches(input_sku: str, candidate_sku: str) -> bool:
 
 
 def sku_from_filename(name: str) -> str:
-    upper = name.upper()
-    if "_CON_LP" in upper:
-        return "consumer lp"
-    if "_CON_H" in upper:
-        return "consumer h"
-    if "_CON_N" in upper:
-        return "consumer n"
-    if "_COR_LP" in upper:
-        return "corporate lp"
-    if "_COR_H" in upper:
-        return "corporate h"
-    if "_COR_N" in upper:
-        return "corporate n"
-    if "_SLM_LP" in upper:
-        return "slim lp"
-    if "_SLM_H" in upper:
-        return "slim h"
-    if "_SLM_N" in upper:
-        return "slim n"
+    tokens = [token for token in re.split(r"[^A-Z0-9]+", name.upper()) if token]
+    families = {"CON": "consumer", "COR": "corporate", "SLM": "slim"}
+    platforms = {"LP": "lp", "H": "h", "N": "n", "P": "p"}
+    for index, token in enumerate(tokens):
+        if token not in families:
+            continue
+        sku = families[token]
+        for next_token in tokens[index + 1:index + 5]:
+            if next_token in platforms:
+                sku += " " + platforms[next_token]
+                break
+        return sku
     return ""
 
 
@@ -1048,32 +1044,43 @@ def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
     score += 150
     reasons.extend(["major", "minor"])
     input_sku = normalize_sku(input_info.sku)
-    cand_sku = normalize_sku(c.sku or candidate.name)
+    cand_sku = normalize_sku(c.sku)
     if input_sku:
         if not sku_matches(input_sku, cand_sku):
             return 0, "sku-mismatch"
-        score += 40
-        reasons.append("sku")
+        input_family, input_platform = sku_key(input_sku)
+        candidate_family, candidate_platform = sku_key(cand_sku)
+        if input_family and candidate_family == input_family:
+            score += 50
+            reasons.append("sku-family")
+        if input_platform and candidate_platform == input_platform:
+            score += 45
+            reasons.append("platform")
+        elif input_platform and candidate_platform:
+            return 0, "platform-mismatch"
     else:
         return 0, "missing-input-sku"
     name_lower = candidate.name.lower()
-    if "extr" not in name_lower:
-        score += 60
-        reasons.append("fit-loadable")
     if "rgn" in name_lower:
-        score += 10
+        score += 80
         reasons.append("rgn")
+    elif "extr" in name_lower:
+        score -= 120
+        reasons.append("extracted")
+    else:
+        score += 35
+        reasons.append("region-like")
     if "prd" in name_lower:
-        score += 5
+        score += 25
         reasons.append("prd")
     cv = version_tuple(c.version)
     iv = version_tuple(input_info.version)
     if cv == iv:
-        score += 120
+        score += 1000
         reasons.append("exact-version")
         return score, ",".join(reasons)
     distance = abs(version_rank(c.version) - version_rank(input_info.version))
-    score += max(0, 80 - distance / 10_000)
+    score += max(0, 100 - distance / 10_000)
     reasons.append("nearest-version")
     return score, ",".join(reasons)
 
@@ -1092,7 +1099,7 @@ def find_best_rgn(repo: Path, input_info: FirmwareInfo) -> tuple[Path, list[dict
             ranked.append({"path": str(p), "score": score, "reason": reason})
     ranked.sort(key=lambda x: x["score"], reverse=True)
     if not ranked:
-        raise FileNotFoundError("No matching PRD RGN firmware found in ME Region root.")
+        raise FileNotFoundError("No matching ME Region firmware found in ME Region root.")
     best = Path(ranked[0]["path"])
     if ranked[0]["score"] < 170:
         raise RuntimeError(
