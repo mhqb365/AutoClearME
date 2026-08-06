@@ -1402,6 +1402,38 @@ def parse_size(value: str | None) -> int | None:
     return size
 
 
+VALID_BIOS_SIZES = [
+    512 * 1024,        # 512 KB
+    1 * 1024 * 1024,   # 1 MB
+    2 * 1024 * 1024,   # 2 MB
+    4 * 1024 * 1024,   # 4 MB
+    8 * 1024 * 1024,   # 8 MB
+    12 * 1024 * 1024,  # 12 MB (8 + 4)
+    16 * 1024 * 1024,  # 16 MB
+    20 * 1024 * 1024,  # 20 MB (16 + 4)
+    24 * 1024 * 1024,  # 24 MB (16 + 8)
+    32 * 1024 * 1024,  # 32 MB
+    40 * 1024 * 1024,  # 40 MB (32 + 8)
+    48 * 1024 * 1024,  # 48 MB (32 + 16)
+    64 * 1024 * 1024,  # 64 MB
+    128 * 1024 * 1024, # 128 MB
+]
+
+
+def trim_bios_data(data: bytes | bytearray, max_margin: int = 1048576) -> tuple[bytes | bytearray, int]:
+    size = len(data)
+    if size in VALID_BIOS_SIZES:
+        return data, 0
+    valid_targets = [s for s in VALID_BIOS_SIZES if s < size]
+    if not valid_targets:
+        return data, 0
+    target_size = max(valid_targets)
+    excess = size - target_size
+    if excess <= max_margin:
+        return data[:target_size], excess
+    return data, 0
+
+
 def infer_chip1_size(total: int) -> int:
     mb = 1024 * 1024
     table = {
@@ -1574,14 +1606,21 @@ def merge_dual_inputs(file1: Path, file2: Path, out_root: Path) -> tuple[Path, i
         raise FileNotFoundError(f"Dual BIOS file 1 not found: {file1}")
     if not file2.exists():
         raise FileNotFoundError(f"Dual BIOS file 2 not found: {file2}")
+    
+    data1, excess1 = trim_bios_data(file1.read_bytes())
+    if excess1 > 0:
+        print(f"[INFO] Cleared {excess1} bytes trailing metadata from {file1.name} (new size: {len(data1)} bytes).", flush=True)
+
+    data2, excess2 = trim_bios_data(file2.read_bytes())
+    if excess2 > 0:
+        print(f"[INFO] Cleared {excess2} bytes trailing metadata from {file2.name} (new size: {len(data2)} bytes).", flush=True)
+
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     merged = out_root / f"MERGED_{stamp}.bin"
     with merged.open("wb") as out:
-        with file1.open("rb") as fh:
-            shutil.copyfileobj(fh, out)
-        with file2.open("rb") as fh:
-            shutil.copyfileobj(fh, out)
-    return merged, file1.stat().st_size
+        out.write(data1)
+        out.write(data2)
+    return merged, len(data1)
 
 
 def cleanup_job(workdir: Path) -> None:
@@ -1673,6 +1712,15 @@ def prepare_input(args: argparse.Namespace, out_value: str | None) -> PrepareInp
     image = Path(args.input).resolve()
     out_root = Path(out_value).resolve() if out_value else image.parent
     out_root.mkdir(parents=True, exist_ok=True)
+
+    data, excess = trim_bios_data(image.read_bytes())
+    if excess > 0:
+        print(f"[INFO] Cleared {excess} bytes trailing metadata from {image.name} (new size: {len(data)} bytes).", flush=True)
+        stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+        trimmed_image = out_root / f"{image.stem}_TRIMMED_{stamp}{image.suffix or '.bin'}"
+        trimmed_image.write_bytes(data)
+        image = trimmed_image
+
     return PrepareInput(image=image, out_root=out_root)
 
 
@@ -1889,6 +1937,13 @@ def command_analyze(args: argparse.Namespace) -> int:
                 raise ValueError("Missing --input, or use --dual-file1 and --dual-file2 for Dual BIOS analysis.")
             image = Path(args.input).resolve()
             chip1_size = None
+            data, excess = trim_bios_data(image.read_bytes())
+            if excess > 0:
+                temp_dir = tempfile.TemporaryDirectory(prefix="AutoClearME_")
+                trimmed_image = Path(temp_dir.name) / image.name
+                trimmed_image.write_bytes(data)
+                print(f"[INFO] Cleared {excess} bytes trailing metadata from {image.name} (new size: {len(data)} bytes).", flush=True)
+                image = trimmed_image
 
         config = load_config(args.config)
         mea_value = pick_arg(args, config, "mea")
