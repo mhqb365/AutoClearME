@@ -72,6 +72,8 @@ class FirmwareInfo:
 class PrepareInput:
     image: Path
     out_root: Path
+    source_image: Path | None = None
+    temp_input_dir: Path | None = None
     temp_merged_input: Path | None = None
     merged_chip1_size: int | None = None
     dual_file1_original: Path | None = None
@@ -679,6 +681,24 @@ HP_DMI_BLOCK_SIZE = 0x1000
 HP_MUD_MARKER = "HP_MUD".encode("utf-16le")
 HP_MUD_BLOCK_SIZE = 0x3000
 
+ACER_DMI_ANCHORS = (
+    b"Acer",
+    b"ACER",
+    b"AcerSystem",
+    b"Aspire",
+    b"Extensa",
+    b"Nitro",
+    b"Predator",
+    b"Swift",
+    b"TravelMate",
+    b"Veriton",
+)
+ACER_DMI_WINDOW = 0x800
+ACER_DMI_BLOCK_SIZE = 0x1000
+ACER_SERIAL_RE = r"(?:NX|NB|DT|DQ|PT|PS|UT|UD|MR)[A-Z0-9]{8,25}"
+ACER_SERIAL_PATTERN = re.compile(ACER_SERIAL_RE)
+ACER_SERIAL_BYTES_PATTERN = re.compile(ACER_SERIAL_RE.encode("ascii"))
+
 
 def hp_dmi_anchor_offsets(buffer: bytes) -> list[int]:
     offsets = []
@@ -738,6 +758,107 @@ def hp_dmi_import_output_name(target: Path) -> Path:
     return unique_output_path(target.with_name(f"{target.stem}_HP_DMI{suffix}"))
 
 
+def acer_dmi_anchor_offsets(buffer: bytes) -> list[int]:
+    offsets: list[int] = []
+    lower = buffer.lower()
+    for anchor in ACER_DMI_ANCHORS:
+        offsets.extend(find_all_bytes(buffer, anchor))
+        lower_anchor = anchor.lower()
+        if lower_anchor != anchor:
+            offsets.extend(find_all_bytes(lower, lower_anchor))
+    offsets.extend(match.start() for match in WINKEY_PATTERN.finditer(buffer))
+    offsets.extend(match.start() for match in ACER_SERIAL_BYTES_PATTERN.finditer(buffer))
+    return sorted(set(offsets))
+
+
+def acer_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    offsets = acer_dmi_anchor_offsets(buffer)
+    blocks: list[tuple[int, bytes]] = []
+    used_ranges: list[tuple[int, int]] = []
+    for offset in offsets:
+        nearby = [candidate for candidate in offsets if abs(candidate - offset) <= ACER_DMI_WINDOW]
+        if len(nearby) < 2:
+            continue
+        start = max(0, min(nearby) & ~(ACER_DMI_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + ACER_DMI_BLOCK_SIZE)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        used_ranges.append((start, end))
+        blocks.append((start, buffer[start:end]))
+    if blocks:
+        return blocks
+    for offset in find_all_bytes(buffer, b"Acer"):
+        start = max(0, offset & ~(ACER_DMI_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + ACER_DMI_BLOCK_SIZE)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        used_ranges.append((start, end))
+        blocks.append((start, buffer[start:end]))
+    return blocks
+
+
+def acer_dmi_label(value: str) -> str:
+    lower = value.lower()
+    if WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
+        return "Windows Key"
+    if re.fullmatch(r"\d{10,13}", value):
+        return "SNID"
+    if ACER_SERIAL_PATTERN.fullmatch(value):
+        return "Serial Number"
+    if any(name in lower for name in ("aspire", "extensa", "nitro", "predator", "swift", "travelmate", "veriton")):
+        return "Model"
+    if lower.startswith("acer"):
+        return "Vendor"
+    return "Acer DMI"
+
+
+def is_acer_dmi_value(value: str) -> bool:
+    lower = value.lower()
+    return (
+        WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")) is not None
+        or re.fullmatch(r"\d{10,13}", value) is not None
+        or ACER_SERIAL_PATTERN.fullmatch(value) is not None
+        or lower.startswith("acer")
+        or any(name in lower for name in ("aspire", "extensa", "nitro", "predator", "swift", "travelmate", "veriton"))
+    )
+
+
+def find_acer_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    items: list[LenovoDmiItem] = []
+    seen: set[tuple[str, str]] = set()
+    for _offset, block in acer_dmi_blocks(buffer):
+        for match in re.findall(rb"[ -~]{3,}", block):
+            value = match.decode("ascii", errors="ignore").strip()
+            if not value or not is_acer_dmi_value(value):
+                continue
+            label = acer_dmi_label(value)
+            key = (label, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(LenovoDmiItem(label, value))
+    return items
+
+
+def acer_dmi_export_name(source: Path) -> Path:
+    return unique_output_path(source.with_name(f"{source.stem}_ACER_DMI.acerdmi"))
+
+
+def acer_dmi_import_output_name(target: Path) -> Path:
+    suffix = target.suffix or ".bin"
+    return unique_output_path(target.with_name(f"{target.stem}_ACER_DMI{suffix}"))
+
+
+def export_acer_dmi(source: Path) -> tuple[Path, int]:
+    blocks = acer_dmi_blocks(source.read_bytes())
+    if not blocks:
+        raise RuntimeError("Acer DMI block was not found.")
+    payload = dmi_package_payload("Acer", blocks)
+    output = acer_dmi_export_name(source)
+    output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output, len(blocks)
+
+
 def dmi_package_payload(kind: str, blocks: list[tuple[int, bytes]]) -> dict:
     return {
         "format": f"AutoClearME {kind} DMI",
@@ -770,7 +891,7 @@ def export_hp_dmi(source: Path) -> tuple[Path, int]:
 def load_dmi_package(path: Path) -> tuple[str, list[bytes]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     package_format = payload.get("format")
-    if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI"}:
+    if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI", "AutoClearME Acer DMI"}:
         raise RuntimeError("Invalid DMI package.")
     blocks = payload.get("blocks")
     if not isinstance(blocks, list) or not blocks:
@@ -782,9 +903,13 @@ def load_dmi_package(path: Path) -> tuple[str, list[bytes]]:
 def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]:
     kind, blocks = load_dmi_package(dmi_package)
     data = bytearray(target.read_bytes())
-    if kind.lower() == "hp":
+    kind_lower = kind.lower()
+    if kind_lower == "hp":
         target_blocks = hp_dmi_blocks(data)
         output_name = hp_dmi_import_output_name(target)
+    elif kind_lower == "acer":
+        target_blocks = acer_dmi_blocks(data)
+        output_name = acer_dmi_import_output_name(target)
     else:
         target_blocks = lenovo_dmi_blocks(data)
         output_name = lenovo_dmi_import_output_name(target)
@@ -1702,6 +1827,7 @@ def prepare_input(args: argparse.Namespace, out_value: str | None) -> PrepareInp
         return PrepareInput(
             image=temp_merged_input,
             out_root=out_root,
+            source_image=temp_merged_input,
             temp_merged_input=temp_merged_input,
             merged_chip1_size=merged_chip1_size,
             dual_file1_original=file1,
@@ -1714,14 +1840,16 @@ def prepare_input(args: argparse.Namespace, out_value: str | None) -> PrepareInp
     out_root.mkdir(parents=True, exist_ok=True)
 
     data, excess = trim_bios_data(image.read_bytes())
+    source_image = image
+    temp_input_dir = None
     if excess > 0:
         print(f"[INFO] Cleared {excess} bytes trailing metadata from {image.name} (new size: {len(data)} bytes).", flush=True)
-        stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-        trimmed_image = out_root / f"{image.stem}_TRIMMED_{stamp}{image.suffix or '.bin'}"
+        temp_input_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_trimmed_"))
+        trimmed_image = temp_input_dir / image.name
         trimmed_image.write_bytes(data)
         image = trimmed_image
 
-    return PrepareInput(image=image, out_root=out_root)
+    return PrepareInput(image=image, out_root=out_root, source_image=source_image, temp_input_dir=temp_input_dir)
 
 
 def resolve_mea(mea_value: str | None, repo: Path, fitc_root: Path) -> Path | None:
@@ -1818,7 +1946,8 @@ def try_fit_build(
 
     for idx, candidate_fitc in enumerate(fitc_candidates, 1):
         print(f"[5/5] Trying FIT CLI build ({idx}/{len(fitc_candidates)}): {fitc_label(candidate_fitc)}", flush=True)
-        work_output = clearme_output_name(prep.image, workdir)
+        output_source = prep.source_image or prep.image
+        work_output = clearme_output_name(output_source, workdir)
         fitc_result = maybe_run_fitc(candidate_fitc, workdir, input_copy, rgn_copy, work_output)
         fitc_runs.append(fitc_result)
         (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
@@ -1826,7 +1955,7 @@ def try_fit_build(
         if not (fitc_succeeded(fitc_result, work_output) or built):
             continue
         fitc = candidate_fitc
-        published_output = publish_clearme_output(built, prep.image, prep.out_root)
+        published_output = publish_clearme_output(built, output_source, prep.out_root)
         if args.dual_split:
             split_outputs = split_cleared_output(args, published_output, prep)
             published_output = None
@@ -1837,6 +1966,8 @@ def try_fit_build(
 def remove_temp_input(prep: PrepareInput) -> None:
     if prep.temp_merged_input and prep.temp_merged_input.exists():
         prep.temp_merged_input.unlink()
+    if prep.temp_input_dir and prep.temp_input_dir.exists():
+        shutil.rmtree(prep.temp_input_dir)
 
 
 def command_prepare(args: argparse.Namespace) -> int:
@@ -1860,7 +1991,8 @@ def command_prepare(args: argparse.Namespace) -> int:
     fitc_candidates = ranked_fit_candidates(args, fitc_root, info)
     fitc = fitc_candidates[0] if fitc_candidates else None
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    workdir = prep.out_root / f"{prep.image.stem}_clearme_{stamp}"
+    work_source = prep.source_image or prep.image
+    workdir = prep.out_root / f"{work_source.stem}_clearme_{stamp}"
     workdir.mkdir(parents=True, exist_ok=False)
     input_copy, rgn_copy = copy_inputs(workdir, prep.image, rgn)
 
@@ -2105,6 +2237,39 @@ def command_hp_dmi_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_acer_dmi(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Finding Acer DMI in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            items = find_acer_dmi(path.read_bytes())
+            if not items:
+                print("  No Acer DMI found", flush=True)
+                continue
+            for item in items:
+                print(f"  {item.label}: {item.value}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Find Acer DMI failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_acer_dmi_export(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    print(f"[INFO] Export Acer DMI from {log_path_name(path)}", flush=True)
+    if not path.exists():
+        raise RuntimeError(f"File does not exist: {log_path_name(path)}")
+    output, count = export_acer_dmi(path)
+    print(f"  Blocks: {count}", flush=True)
+    print(f"  Output: {log_path_name(output)}", flush=True)
+    return 0
+
+
 def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     package = Path(args.dmi).resolve()
@@ -2243,6 +2408,14 @@ def build_parser() -> argparse.ArgumentParser:
     hp_export = sub.add_parser("hp-dmi-export", help="Export HP DMI blocks to a .hpdmi package.")
     hp_export.add_argument("--input", required=True, help="Source BIOS dump.")
     hp_export.set_defaults(func=command_hp_dmi_export)
+
+    acer_dmi = sub.add_parser("acer-dmi", help="Find Acer DMI data in BIOS dump(s).")
+    acer_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
+    acer_dmi.set_defaults(func=command_acer_dmi)
+
+    acer_export = sub.add_parser("acer-dmi-export", help="Export Acer DMI blocks to a .acerdmi package.")
+    acer_export.add_argument("--input", required=True, help="Source BIOS dump.")
+    acer_export.set_defaults(func=command_acer_dmi_export)
 
     lenovo_import = sub.add_parser("lenovo-dmi-import", help="Import Lenovo DMI blocks into another BIOS dump.")
     lenovo_import.add_argument("--dmi", required=True, help="Lenovo DMI .lendmi package.")

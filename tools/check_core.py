@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, display_sku, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, display_sku, find_acer_dmi, parse_mea_output, score_rgn, sku_matches
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -43,6 +43,13 @@ def main() -> int:
     assert version_parts("v1.01") == (1, 0, 1)
     assert version_parts("v1.0.1") == (1, 0, 1)
     assert format_version("v1.01") == "1.0.1"
+    acer_block = bytearray(0x2000)
+    acer_block[0x100:0x100 + 57] = b"Acer\x00Aspire A315-58\x00NXHS5AA00123456789ABC\x0012345678901\x00"
+    acer_items = {(item.label, item.value) for item in find_acer_dmi(bytes(acer_block))}
+    assert ("Vendor", "Acer") in acer_items
+    assert ("Model", "Aspire A315-58") in acer_items
+    assert ("Serial Number", "NXHS5AA00123456789ABC") in acer_items
+    assert ("SNID", "12345678901") in acer_items
     print("core smoke checks passed")
     return 0
 
