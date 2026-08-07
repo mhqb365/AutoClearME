@@ -109,10 +109,26 @@ def replace_app(payload: Path, app_dir: Path) -> None:
 
 
 def relaunch(app_dir: Path) -> None:
-    launcher = app_dir / "Run.bat"
-    if launcher.exists():
-        print("Restarting Auto Clear ME...", flush=True)
-        subprocess.Popen(["cmd", "/c", "start", "", str(launcher)], cwd=str(app_dir), shell=False)
+    gui = app_dir / "AutoClearME_GUI.py"
+    pythonw = app_dir / "Runtime" / "Python" / "pythonw.exe"
+    python = app_dir / "Runtime" / "Python" / "python.exe"
+    executable = pythonw if pythonw.exists() else python
+    if not gui.exists() or not executable.exists():
+        return
+    print("Restarting Auto Clear ME...", flush=True)
+    startupinfo = None
+    creationflags = 0
+    if os.name == "nt":
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    subprocess.Popen(
+        [str(executable), str(gui)],
+        cwd=str(app_dir),
+        startupinfo=startupinfo,
+        creationflags=creationflags,
+    )
 
 
 def main() -> int:

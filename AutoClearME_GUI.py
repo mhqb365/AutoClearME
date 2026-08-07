@@ -558,25 +558,17 @@ class ClearMeGui(tk.Tk):
         update_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_Update_Launcher_"))
         update_script = update_dir / UPDATE_SCRIPT_PATH.name
         shutil.copy2(UPDATE_SCRIPT_PATH, update_script)
-        launcher = update_dir / "RunUpdate.bat"
-        launcher.write_text(
-            "\n".join([
-                "@echo off",
-                "title Auto Clear ME Update",
-                "echo Updating Auto Clear ME...",
-                f"\"{self.console_python()}\" \"{update_script}\" --url \"{url}\" --app-dir \"{APP_DIR}\" --parent-pid {os.getpid()}",
-                "if errorlevel 1 (",
-                "  echo.",
-                "  echo Update failed. Please copy the error above and report it.",
-                "  pause",
-                "  exit /b 1",
-                ")",
-                "exit /b 0",
-                "",
-            ]),
-            encoding="utf-8",
-        )
-        subprocess.Popen(["cmd", "/c", "start", "", str(launcher)], cwd=str(update_dir))
+        cmd = [
+            self.console_python(),
+            str(update_script),
+            "--url",
+            url,
+            "--app-dir",
+            str(APP_DIR),
+            "--parent-pid",
+            str(os.getpid()),
+        ]
+        subprocess.Popen(cmd, cwd=str(update_dir), **self.hidden_process_kwargs())
         self.after(300, self.destroy)
 
     def open_about(self) -> None:
