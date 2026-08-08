@@ -33,7 +33,7 @@ LANGUAGE_PATH = APP_DIR / "languages.json"
 FALLBACK_TEXT = {
     "en": {
         "language": "Language",
-        "subtitle": "A tool to help clear ME BIOS 11 -> 20",
+        "subtitle": "A tool to help clear ME BIOS 11+",
         "about": "About",
         "settings": "Settings",
         "bios_files": "BIOS Files",
@@ -96,7 +96,7 @@ FALLBACK_TEXT = {
     },
     "vi": {
         "language": "Ngôn ngữ",
-        "subtitle": "Công cụ hỗ trợ clear ME BIOS 11 -> 20",
+        "subtitle": "Công cụ hỗ trợ clear ME BIOS 11+",
         "about": "Giới thiệu",
         "settings": "Cài đặt",
         "bios_files": "File BIOS",

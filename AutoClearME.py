@@ -1197,6 +1197,8 @@ def hp_preview_items(items: list[LenovoDmiItem]) -> list[LenovoDmiItem]:
     for item in items:
         if item.label not in wanted:
             continue
+        if item.label == "Serial Number" and not is_hp_serial_number(item.value):
+            continue
         if item.label == "Feature Byte" and not is_hp_feature_byte(item.value):
             continue
         key = (item.label, item.value)
@@ -1205,6 +1207,14 @@ def hp_preview_items(items: list[LenovoDmiItem]) -> list[LenovoDmiItem]:
         seen.add(key)
         filtered.append(item)
     return sorted(filtered, key=lambda item: order.get(item.label, 99))
+
+
+def is_hp_serial_number(value: str) -> bool:
+    return (
+        re.fullmatch(r"[A-Z0-9]{10,12}", value) is not None
+        and value not in {"BuildId", "FactoryConfig", "HP_MUD"}
+        and not re.search(r"setup|config|variable|build|factory", value, re.IGNORECASE)
+    )
 
 
 def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
@@ -1217,13 +1227,15 @@ def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
     values = [value for _offset, value in strings]
     for index, value in enumerate(values):
         if value == "HP_MUD" and index + 1 < len(values):
-            add_unique_dmi_item(items, seen, "Serial Number", values[index + 1])
+            candidate = values[index + 1]
+            if is_hp_serial_number(candidate):
+                add_unique_dmi_item(items, seen, "Serial Number", candidate)
         elif value == "BuildId" and index + 1 < len(values):
-            add_unique_dmi_item(items, seen, "Build ID", values[index + 1])
+            continue
         elif value == "FactoryConfig" and index + 1 < len(values):
             add_unique_dmi_item(items, seen, "Feature Byte", values[index + 1])
     for value in values:
-        if value.startswith("HP ") and "Workstation" in value:
+        if value.startswith("HP "):
             add_unique_dmi_item(items, seen, "Model", value.removesuffix(" PC"))
         elif re.fullmatch(r"[A-Z0-9]{6,8}#[A-Z0-9]{3}", value):
             add_unique_dmi_item(items, seen, "Product ID", value)
