@@ -18,6 +18,7 @@ import argparse
 import base64
 import ctypes
 import datetime as _dt
+import hashlib
 import json
 import os
 import re
@@ -683,6 +684,7 @@ HP_MUD_BLOCK_SIZE = 0x3000
 HP_LEGACY_DMI_MARKER = b"$EPRF"
 HP_INSYDE_DMI_MARKER = b"InsydeH2O EFI BIOS"
 HP_LEGACY_DMI_BLOCK_SIZE = 0x1000
+HP_RAW_DMI_BLOCK_SIZE = 0x5000
 HP_CERTIFICATE_STRINGS = (
     b"UEFI Secure Boot",
     b"Microsoft",
@@ -753,9 +755,15 @@ def hp_legacy_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
     used_ranges: list[tuple[int, int]] = []
     offsets = list(find_all_bytes(buffer, HP_LEGACY_DMI_MARKER))
     offsets.extend(find_all_bytes(buffer, HP_INSYDE_DMI_MARKER))
+    for match in re.finditer(rb"(?<![A-Z0-9])[A-Z0-9]{10}\x00", buffer):
+        block_start = match.start() & ~(HP_DMI_BLOCK_SIZE - 1)
+        block = buffer[block_start:block_start + HP_DMI_BLOCK_SIZE]
+        if b"HP " in block and re.search(rb"[A-Z0-9]{5,8}#[A-Z0-9]{3}", block):
+            offsets.append(match.start())
     for offset in sorted(set(offsets)):
         start = max(0, offset & ~(HP_DMI_BLOCK_SIZE - 1))
-        end = min(len(buffer), start + HP_LEGACY_DMI_BLOCK_SIZE)
+        block_size = HP_RAW_DMI_BLOCK_SIZE if HP_INSYDE_DMI_MARKER not in buffer[start:start + HP_LEGACY_DMI_BLOCK_SIZE] else HP_LEGACY_DMI_BLOCK_SIZE
+        end = min(len(buffer), start + block_size)
         if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
             continue
         block = buffer[start:end]
@@ -896,12 +904,22 @@ def export_acer_dmi(source: Path) -> tuple[Path, int]:
     return output, len(blocks)
 
 
+def dmi_block_meta(offset: int, block: bytes) -> dict:
+    return {
+        "offset": offset,
+        "size": len(block),
+        "sha256": hashlib.sha256(block).hexdigest(),
+        "head": base64.b64encode(block[:64]).decode("ascii"),
+    }
+
+
 def dmi_package_payload(kind: str, blocks: list[tuple[int, bytes]]) -> dict:
     return {
         "format": f"AutoClearME {kind} DMI",
-        "version": 1,
+        "version": 2,
         "kind": kind,
         "blocks": [base64.b64encode(block).decode("ascii") for _offset, block in blocks],
+        "block_meta": [dmi_block_meta(offset, block) for offset, block in blocks],
     }
 
 
@@ -925,7 +943,7 @@ def export_hp_dmi(source: Path) -> tuple[Path, int]:
     return output, len(blocks)
 
 
-def load_dmi_package(path: Path) -> tuple[str, list[bytes]]:
+def load_dmi_package(path: Path) -> tuple[str, list[bytes], list[dict]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     package_format = payload.get("format")
     if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI", "AutoClearME Acer DMI"}:
@@ -934,11 +952,68 @@ def load_dmi_package(path: Path) -> tuple[str, list[bytes]]:
     if not isinstance(blocks, list) or not blocks:
         raise RuntimeError("DMI package does not contain any block.")
     kind = str(payload.get("kind") or package_format.replace("AutoClearME ", "").replace(" DMI", ""))
-    return kind, [base64.b64decode(str(block)) for block in blocks]
+    block_meta = payload.get("block_meta")
+    meta = block_meta if isinstance(block_meta, list) else []
+    return kind, [base64.b64decode(str(block)) for block in blocks], meta
+
+
+def dmi_block_markers(block: bytes) -> tuple[bytes, ...]:
+    markers = []
+    for marker in (HP_LEGACY_DMI_MARKER, HP_INSYDE_DMI_MARKER, HP_MUD_MARKER, b"HP ", b"LENV", b"Acer"):
+        if marker in block:
+            markers.append(marker)
+    return tuple(markers)
+
+
+def match_dmi_import_blocks(
+    kind: str,
+    blocks: list[bytes],
+    block_meta: list[dict],
+    target_blocks: list[tuple[int, bytes]],
+) -> list[tuple[bytes, int, bytes]]:
+    if len(target_blocks) < len(blocks):
+        if kind.lower() != "hp" or not block_meta:
+            raise RuntimeError(f"Target BIOS has {len(target_blocks)} {kind} DMI block(s), package has {len(blocks)}.")
+    matches: list[tuple[bytes, int, bytes]] = []
+    used_targets: set[int] = set()
+    require_exact_offset = kind.lower() == "hp" and bool(block_meta) and len(target_blocks) < len(blocks)
+    for index, block in enumerate(blocks):
+        meta = block_meta[index] if index < len(block_meta) and isinstance(block_meta[index], dict) else {}
+        wanted_offset = meta.get("offset")
+        wanted_size = int(meta.get("size") or len(block))
+        markers = dmi_block_markers(block)
+        selected: tuple[int, bytes] | None = None
+        if isinstance(wanted_offset, int):
+            for target_index, (offset, target_block) in enumerate(target_blocks):
+                if target_index in used_targets:
+                    continue
+                if offset == wanted_offset and len(target_block) == wanted_size:
+                    selected = (offset, target_block)
+                    used_targets.add(target_index)
+                    break
+        if selected is None:
+            if require_exact_offset:
+                continue
+            for target_index, (offset, target_block) in enumerate(target_blocks):
+                if target_index in used_targets or len(target_block) != len(block):
+                    continue
+                if markers and not all(marker in target_block for marker in markers):
+                    continue
+                selected = (offset, target_block)
+                used_targets.add(target_index)
+                break
+        if selected is None:
+            if kind.lower() == "hp" and block_meta:
+                continue
+            raise RuntimeError(f"Target BIOS does not contain a matching {kind} DMI block for package block {index + 1}.")
+        matches.append((block, selected[0], selected[1]))
+    if not matches:
+        raise RuntimeError(f"Target BIOS does not contain any matching {kind} DMI block.")
+    return matches
 
 
 def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]:
-    kind, blocks = load_dmi_package(dmi_package)
+    kind, blocks, block_meta = load_dmi_package(dmi_package)
     data = bytearray(target.read_bytes())
     kind_lower = kind.lower()
     if kind_lower == "hp":
@@ -950,15 +1025,13 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
     else:
         target_blocks = lenovo_dmi_blocks(data)
         output_name = lenovo_dmi_import_output_name(target)
-    if len(target_blocks) < len(blocks):
-        raise RuntimeError(f"Target BIOS has {len(target_blocks)} {kind} DMI block(s), package has {len(blocks)}.")
-    for index, block in enumerate(blocks):
-        offset, target_block = target_blocks[index]
+    block_pairs = match_dmi_import_blocks(kind, blocks, block_meta, target_blocks)
+    for block, offset, target_block in block_pairs:
         if len(block) != len(target_block):
             raise RuntimeError(f"{kind} DMI block size does not match target BIOS.")
         data[offset:offset + len(block)] = block
     output_name.write_bytes(data)
-    return output_name, len(blocks), kind
+    return output_name, len(block_pairs), kind
 
 
 def import_lenovo_dmi(target: Path, dmi_package: Path) -> tuple[Path, int]:
@@ -1102,6 +1175,38 @@ def add_unique_dmi_item(items: list[LenovoDmiItem], seen: set[tuple[str, str]], 
         items.append(LenovoDmiItem(label, value))
 
 
+def is_hp_feature_byte(value: str) -> bool:
+    return (
+        20 <= len(value) <= 120
+        and any(marker in value for marker in ("Wa", "apa", "Udp", "#S", "#D"))
+        and not re.search(r"variable|lock|table|config|setup", value, re.IGNORECASE)
+    )
+
+
+def hp_preview_items(items: list[LenovoDmiItem]) -> list[LenovoDmiItem]:
+    wanted = {"Model", "Serial Number", "Product ID", "Feature Byte", "Windows Key"}
+    order = {
+        "Model": 0,
+        "Serial Number": 1,
+        "Product ID": 2,
+        "Feature Byte": 3,
+        "Windows Key": 4,
+    }
+    filtered: list[LenovoDmiItem] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        if item.label not in wanted:
+            continue
+        if item.label == "Feature Byte" and not is_hp_feature_byte(item.value):
+            continue
+        key = (item.label, item.value)
+        if key in seen:
+            continue
+        seen.add(key)
+        filtered.append(item)
+    return sorted(filtered, key=lambda item: order.get(item.label, 99))
+
+
 def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
     blocks = hp_mud_blocks(buffer)
     if not blocks:
@@ -1138,17 +1243,7 @@ def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
     for candidate in find_winkeys(buffer):
         add_unique_dmi_item(items, seen, "Windows Key", candidate.key)
         break
-    order = {
-        "Model": 0,
-        "Serial Number": 1,
-        "Product ID": 2,
-        "Build ID": 3,
-        "Feature Byte": 4,
-        "CT Number": 5,
-        "BIOS ID": 6,
-        "Windows Key": 7,
-    }
-    return sorted(items, key=lambda item: order.get(item.label, 99))
+    return hp_preview_items(items)
 
 
 def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
@@ -1168,6 +1263,11 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
             if re.fullmatch(r"[A-Z0-9]{10}", serial):
                 add_unique_dmi_item(items, seen, "Serial Number", serial)
             continue
+        if feature_match := re.search(r"([A-Za-z0-9.#]{30,80})", value):
+            feature = feature_match.group(1)
+            if is_hp_feature_byte(feature):
+                add_unique_dmi_item(items, seen, "Feature Byte", feature)
+                continue
         if re.fullmatch(r"[A-Z0-9]{10}", value):
             add_unique_dmi_item(items, seen, "Serial Number", value)
         elif value.startswith("HP ") and "Laptop" in value:
@@ -1175,26 +1275,16 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
         elif re.fullmatch(r"[A-Z0-9]{5,8}#[A-Z0-9]{3}", value):
             add_unique_dmi_item(items, seen, "Product ID", value)
         elif re.fullmatch(r"20\d{2}", value):
-            add_unique_dmi_item(items, seen, "Build Year", value)
-        elif re.fullmatch(r"[A-Za-z0-9.#]{30,80}", value):
+            continue
+        elif re.fullmatch(r"[A-Za-z0-9.#]{30,80}", value) and is_hp_feature_byte(value):
             add_unique_dmi_item(items, seen, "Feature Byte", value)
         elif value.startswith(("14WW", "15WW", "16WW", "17WW", "18WW")) and "#" in value:
-            add_unique_dmi_item(items, seen, "Build ID", value)
+            continue
         elif re.fullmatch(r"[A-Z0-9]{12,16}", value):
-            add_unique_dmi_item(items, seen, "BIOS ID", value)
+            continue
         elif WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
             add_unique_dmi_item(items, seen, "Windows Key", value)
-    order = {
-        "Model": 0,
-        "Serial Number": 1,
-        "Product ID": 2,
-        "Build Year": 3,
-        "BIOS ID": 4,
-        "Feature Byte": 5,
-        "Build ID": 6,
-        "Windows Key": 7,
-    }
-    return sorted(items, key=lambda item: order.get(item.label, 99))
+    return hp_preview_items(items)
 
 
 def find_hp_dmi(buffer: bytes) -> list[LenovoDmiItem]:
@@ -1225,7 +1315,7 @@ def find_hp_dmi(buffer: bytes) -> list[LenovoDmiItem]:
                 continue
             seen.add(value)
             items.append(LenovoDmiItem(hp_dmi_label(value), value))
-    return items
+    return hp_preview_items(items)
 
 
 def find_winkeys(buffer: bytes) -> list[WinKeyCandidate]:
