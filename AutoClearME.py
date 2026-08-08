@@ -681,6 +681,7 @@ HP_DMI_BLOCK_SIZE = 0x1000
 HP_MUD_MARKER = "HP_MUD".encode("utf-16le")
 HP_MUD_BLOCK_SIZE = 0x3000
 HP_LEGACY_DMI_MARKER = b"$EPRF"
+HP_INSYDE_DMI_MARKER = b"InsydeH2O EFI BIOS"
 HP_LEGACY_DMI_BLOCK_SIZE = 0x1000
 HP_CERTIFICATE_STRINGS = (
     b"UEFI Secure Boot",
@@ -750,13 +751,19 @@ def hp_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
 def hp_legacy_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
     blocks = []
     used_ranges: list[tuple[int, int]] = []
-    for offset in find_all_bytes(buffer, HP_LEGACY_DMI_MARKER):
+    offsets = list(find_all_bytes(buffer, HP_LEGACY_DMI_MARKER))
+    offsets.extend(find_all_bytes(buffer, HP_INSYDE_DMI_MARKER))
+    for offset in sorted(set(offsets)):
         start = max(0, offset & ~(HP_DMI_BLOCK_SIZE - 1))
         end = min(len(buffer), start + HP_LEGACY_DMI_BLOCK_SIZE)
         if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
             continue
         block = buffer[start:end]
-        if b"HP " in block and (b"#" in block or WINKEY_PATTERN.search(block)):
+        if b"HP " in block and (
+            b"#" in block
+            or WINKEY_PATTERN.search(block)
+            or HP_INSYDE_DMI_MARKER in block
+        ):
             used_ranges.append((start, end))
             blocks.append((start, block))
     return blocks
@@ -1156,6 +1163,11 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
         for match in re.finditer(rb"[ -~]{4,}", block)
     ]
     for value in values:
+        if HP_INSYDE_DMI_MARKER.decode("ascii") in value:
+            serial = value.split(HP_INSYDE_DMI_MARKER.decode("ascii"), 1)[0].strip()
+            if re.fullmatch(r"[A-Z0-9]{10}", serial):
+                add_unique_dmi_item(items, seen, "Serial Number", serial)
+            continue
         if re.fullmatch(r"[A-Z0-9]{10}", value):
             add_unique_dmi_item(items, seen, "Serial Number", value)
         elif value.startswith("HP ") and "Laptop" in value:
@@ -1164,10 +1176,12 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
             add_unique_dmi_item(items, seen, "Product ID", value)
         elif re.fullmatch(r"20\d{2}", value):
             add_unique_dmi_item(items, seen, "Build Year", value)
+        elif re.fullmatch(r"[A-Za-z0-9.#]{30,80}", value):
+            add_unique_dmi_item(items, seen, "Feature Byte", value)
+        elif value.startswith(("14WW", "15WW", "16WW", "17WW", "18WW")) and "#" in value:
+            add_unique_dmi_item(items, seen, "Build ID", value)
         elif re.fullmatch(r"[A-Z0-9]{12,16}", value):
             add_unique_dmi_item(items, seen, "BIOS ID", value)
-        elif value.startswith(("14WW", "15WW", "16WW", "17WW")) or "#" in value and len(value) >= 20:
-            add_unique_dmi_item(items, seen, "Feature Byte", value)
         elif WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
             add_unique_dmi_item(items, seen, "Windows Key", value)
     order = {
@@ -1177,7 +1191,8 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
         "Build Year": 3,
         "BIOS ID": 4,
         "Feature Byte": 5,
-        "Windows Key": 6,
+        "Build ID": 6,
+        "Windows Key": 7,
     }
     return sorted(items, key=lambda item: order.get(item.label, 99))
 

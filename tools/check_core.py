@@ -40,9 +40,11 @@ def main() -> int:
     old_rgn_score, _ = score_rgn(input_info, Path("14.1.53.1649_COR_H_A_PRD_RGN.bin"))
     exact_extr_score, _ = score_rgn(input_info, Path("14.1.70.2228_COR_H_A_PRD_EXTR-Y_B430BC4A.bin"))
     assert exact_extr_score > old_rgn_score
-    assert version_parts("v1.01") == (1, 0, 1)
-    assert version_parts("v1.0.1") == (1, 0, 1)
+    assert version_parts("v1.01") == (1, 0, 1, 0)
+    assert version_parts("v1.0.1") == (1, 0, 1, 0)
+    assert version_parts("v1.0.8.1") == (1, 0, 8, 1)
     assert format_version("v1.01") == "1.0.1"
+    assert format_version("v1.0.8.1") == "1.0.8.1"
     acer_block = bytearray(0x2000)
     acer_block[0x100:0x100 + 57] = b"Acer\x00Aspire A315-58\x00NXHS5AA00123456789ABC\x0012345678901\x00"
     acer_items = {(item.label, item.value) for item in find_acer_dmi(bytes(acer_block))}

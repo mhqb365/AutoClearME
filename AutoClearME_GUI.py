@@ -160,19 +160,22 @@ FALLBACK_TEXT = {
 }
 
 
-def version_parts(value: str) -> tuple[int, int, int]:
+def version_parts(value: str) -> tuple[int, int, int, int]:
     raw = str(value or "").strip().lstrip("vV")
     numbers = re.findall(r"\d+", raw)
     if len(numbers) == 2 and len(numbers[1]) == 2 and numbers[1].startswith("0"):
         numbers = [numbers[0], numbers[1][0], numbers[1][1]]
-    parts = [int(n) for n in numbers[:3]]
-    while len(parts) < 3:
+    parts = [int(n) for n in numbers[:4]]
+    while len(parts) < 4:
         parts.append(0)
-    return tuple(parts[:3])
+    return tuple(parts[:4])
 
 
 def format_version(value: str) -> str:
-    return ".".join(str(part) for part in version_parts(value))
+    parts = list(version_parts(value))
+    while len(parts) > 3 and parts[-1] == 0:
+        parts.pop()
+    return ".".join(str(part) for part in parts)
 
 
 def app_version() -> str:
