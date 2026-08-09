@@ -53,6 +53,7 @@ HP_NVRAM_ACTIVE_MARKER = b"NvramActiveRegn\x00"
 HP_UNLOCK_SCAN_SIZE = 0x1000
 HP_UNLOCK_REQUIRED_MARKERS = (b"H_AuthVar\x00", b"H_SmartCover\x00")
 HP_UNLOCK_OPTIONAL_MARKERS = (b"H_ShrdCrInf\x00", b"H_MeFwEcSts\x00")
+HP_EC_UNLOCK_REQUIRED_MARKERS = (b"H_AuthVar\x00", b"H_ShrdCrInf\x00", b"H_MeFwEcSts\x00")
 
 
 @dataclass
@@ -1864,6 +1865,16 @@ def hp_unlock_region_length(section: bytes | bytearray) -> int:
     return last_used + 1 if last_used >= len(HP_NVRAM_ACTIVE_MARKER) else 0
 
 
+def hp_ec_unlock_region_length(section: bytes | bytearray) -> int:
+    if not all(marker in section for marker in HP_EC_UNLOCK_REQUIRED_MARKERS):
+        return 0
+    last_used = -1
+    for index, value in enumerate(section):
+        if value != 0xFF:
+            last_used = index
+    return last_used + 1 if last_used >= len(HP_NVRAM_ACTIVE_MARKER) else 0
+
+
 def unlock_hp_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]]:
     data = bytearray(source.read_bytes())
     cleared_ranges: list[tuple[int, int]] = []
@@ -1873,6 +1884,8 @@ def unlock_hp_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]
         markers_found += 1
         end = min(marker_offset + HP_UNLOCK_SCAN_SIZE, len(data))
         clear_length = hp_unlock_region_length(data[marker_offset:end])
+        if not clear_length:
+            clear_length = hp_ec_unlock_region_length(data[marker_offset:end])
         if clear_length:
             data[marker_offset:marker_offset + clear_length] = b"\xFF" * clear_length
             cleared_ranges.append((marker_offset, clear_length))
