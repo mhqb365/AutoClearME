@@ -41,6 +41,7 @@ FALLBACK_TEXT = {
         "dual_bios": "Dual BIOS",
         "lenovo_dmi_tab": "Lenovo DMI",
         "hp_dmi_tab": "HP DMI",
+        "dell_dmi_tab": "Dell DMI",
         "bios_file": "BIOS file",
         "bios_file_1": "BIOS file 1",
         "bios_file_2": "BIOS file 2",
@@ -50,6 +51,7 @@ FALLBACK_TEXT = {
         "import_dmi": "Import Lenovo DMI",
         "import_hp_dmi": "Import HP DMI",
         "import_acer_dmi": "Import Acer DMI",
+        "import_dell_dmi": "Import Dell DMI",
         "me_region": "ME Region",
         "fit": "FIT",
         "winkey": "Win Key",
@@ -59,6 +61,8 @@ FALLBACK_TEXT = {
         "lenovo_dmi": "Export Lenovo DMI",
         "hp_dmi": "Export HP DMI",
         "acer_dmi": "Export Acer DMI",
+        "dell_dmi": "Export Dell DMI",
+        "dell_dmi_warning": "Dell DMI warning: current feature works well on AMD; Intel still needs more testing, please consider before using.",
         "acer_dmi_tab": "Acer DMI",
         "clear_me": "Clear ME",
         "log": "Log",
@@ -104,6 +108,7 @@ FALLBACK_TEXT = {
         "dual_bios": "BIOS kép",
         "lenovo_dmi_tab": "Lenovo DMI",
         "hp_dmi_tab": "HP DMI",
+        "dell_dmi_tab": "Dell DMI",
         "bios_file": "File BIOS",
         "bios_file_1": "File BIOS 1",
         "bios_file_2": "File BIOS 2",
@@ -113,6 +118,7 @@ FALLBACK_TEXT = {
         "import_dmi": "Nhập DMI",
         "import_hp_dmi": "Nhập HP DMI",
         "import_acer_dmi": "Nhập Acer DMI",
+        "import_dell_dmi": "Nhập Dell DMI",
         "me_region": "ME Region",
         "fit": "FIT",
         "winkey": "Win Key",
@@ -122,6 +128,8 @@ FALLBACK_TEXT = {
         "lenovo_dmi": "Export Lenovo DMI",
         "hp_dmi": "Export HP DMI",
         "acer_dmi": "Export Acer DMI",
+        "dell_dmi": "Export Dell DMI",
+        "dell_dmi_warning": "Cảnh báo Dell DMI: tính năng hiện tại hoạt động tốt trên AMD; Intel vẫn cần test thêm, cân nhắc trước khi sử dụng.",
         "acer_dmi_tab": "Acer DMI",
         "clear_me": "Clear ME",
         "log": "Log",
@@ -219,6 +227,7 @@ class ClearMeGui(tk.Tk):
         self.last_analyze_result = ""
         self.last_oem_dmi_files: list[str] = []
         self.last_oem_dmi_vendor = ""
+        self.dell_dmi_warning_shown = False
         self.analyzed_signature: tuple[str, ...] = ()
         self.analyzed_detected: dict = {}
         self.rgn_choices: dict[str, str] = {}
@@ -240,6 +249,8 @@ class ClearMeGui(tk.Tk):
             "hp_dmi_target": tk.StringVar(),
             "acer_dmi_package": tk.StringVar(),
             "acer_dmi_target": tk.StringVar(),
+            "dell_dmi_package": tk.StringVar(),
+            "dell_dmi_target": tk.StringVar(),
             "rgn_choice": tk.StringVar(),
             "fit_choice": tk.StringVar(),
             "chip1_size": tk.StringVar(value="8MB"),
@@ -317,6 +328,17 @@ class ClearMeGui(tk.Tk):
         self.import_acer_dmi_button = acer_dmi_tab.import_button
         self.acer_dmi_button = acer_dmi_tab.find_button
         tabs.add(acer_dmi_tab, text="")
+
+        dell_dmi_tab = self.build_dmi_import_tab(
+            tabs,
+            "dell_dmi_target",
+            "dell_dmi_package",
+            self.start_import_dell_dmi,
+            self.start_find_dell_dmi,
+        )
+        self.import_dell_dmi_button = dell_dmi_tab.import_button
+        self.dell_dmi_button = dell_dmi_tab.find_button
+        tabs.add(dell_dmi_tab, text="")
 
         hp_dmi_tab = self.build_dmi_import_tab(
             tabs,
@@ -434,6 +456,9 @@ class ClearMeGui(tk.Tk):
         if tab_index >= 2:
             self.show_main_actions(False)
             self.update_tabs_height()
+            if self.tabs.tab(tab_index, "text") == self.t("dell_dmi_tab") and not self.dell_dmi_warning_shown:
+                self.dell_dmi_warning_shown = True
+                self.log_info(self.t("dell_dmi_warning"))
             self.reset_analysis()
             self.status_var.set(self.t("ready"))
             return
@@ -475,11 +500,13 @@ class ClearMeGui(tk.Tk):
         self.tabs.tab(0, text=self.t("single_bios"))
         self.tabs.tab(1, text=self.t("dual_bios"))
         self.tabs.tab(2, text=self.t("acer_dmi_tab"))
-        self.tabs.tab(3, text=self.t("hp_dmi_tab"))
-        self.tabs.tab(4, text=self.t("lenovo_dmi_tab"))
+        self.tabs.tab(3, text=self.t("dell_dmi_tab"))
+        self.tabs.tab(4, text=self.t("hp_dmi_tab"))
+        self.tabs.tab(5, text=self.t("lenovo_dmi_tab"))
         self.import_dmi_button.configure(text=self.t("import_dmi"))
         self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.import_acer_dmi_button.configure(text=self.t("import_acer_dmi"))
+        self.import_dell_dmi_button.configure(text=self.t("import_dell_dmi"))
         self.winkey_button.configure(text=self.t("winkey"))
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.unlock_acer_button.configure(text=self.t("unlock_acer"))
@@ -487,6 +514,7 @@ class ClearMeGui(tk.Tk):
         self.lenovo_dmi_button.configure(text=self.t("lenovo_dmi"))
         self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.acer_dmi_button.configure(text=self.t("acer_dmi"))
+        self.dell_dmi_button.configure(text=self.t("dell_dmi"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -629,13 +657,13 @@ class ClearMeGui(tk.Tk):
         if path:
             self.input_paths[key] = path
             self.vars[key].set(Path(path).name)
-            if not key.startswith("dmi_"):
+            if key in {"input", "dual_file1", "dual_file2"}:
                 self.start_analyze_selected()
 
     def pick_dmi_package(self, key: str) -> None:
         path = filedialog.askopenfilename(
             title=self.t("dmi_package"),
-            filetypes=[("DMI package", "*.lendmi *.hpdmi *.acerdmi"), ("All files", "*.*")],
+            filetypes=[("DMI package", "*.lendmi *.hpdmi *.acerdmi *.delldmi"), ("All files", "*.*")],
         )
         if path:
             self.input_paths[key] = path
@@ -780,6 +808,9 @@ class ClearMeGui(tk.Tk):
     def start_find_acer_dmi(self) -> None:
         self.start_find_oem_dmi("Acer", "acer-dmi", "acer_dmi_target", self.acer_dmi_button, "ACER_DMI_DONE")
 
+    def start_find_dell_dmi(self) -> None:
+        self.start_find_oem_dmi("Dell", "dell-dmi", "dell_dmi_target", self.dell_dmi_button, "DELL_DMI_DONE")
+
     def start_find_oem_dmi(self, vendor: str, command: str, target_key: str, button: ttk.Button, done_tag: str) -> None:
         self.last_dmi_transfer_result = ""
         target = self.input_path(target_key)
@@ -795,6 +826,9 @@ class ClearMeGui(tk.Tk):
 
     def start_import_acer_dmi(self) -> None:
         self.start_import_dmi("Acer", "acer_dmi_package", "acer_dmi_target", self.import_acer_dmi_button)
+
+    def start_import_dell_dmi(self) -> None:
+        self.start_import_dmi("Dell", "dell_dmi_package", "dell_dmi_target", self.import_dell_dmi_button)
 
     def start_import_dmi(self, vendor: str, package_key: str, target_key: str, button: ttk.Button) -> None:
         package = self.input_path(package_key)
@@ -825,6 +859,9 @@ class ClearMeGui(tk.Tk):
         elif vendor == "Acer":
             button = self.acer_dmi_button
             command = "acer-dmi-export"
+        elif vendor == "Dell":
+            button = self.dell_dmi_button
+            command = "dell-dmi-export"
         else:
             button = self.lenovo_dmi_button
             command = "lenovo-dmi-export"
@@ -935,7 +972,7 @@ class ClearMeGui(tk.Tk):
                 self.last_analyze_result += line
             elif done_tag == "WINKEY_DONE":
                 self.queue.put(line)
-            elif done_tag in {"LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DMI_EXPORT_DONE"}:
+            elif done_tag in {"LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
                 self.last_dmi_transfer_result += line
                 self.queue.put(line)
             elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE"}:
@@ -1011,6 +1048,9 @@ class ClearMeGui(tk.Tk):
         if tag == "ACER_DMI_DONE":
             self.handle_oem_dmi_done(code, self.acer_dmi_button, "Acer")
             return
+        if tag == "DELL_DMI_DONE":
+            self.handle_oem_dmi_done(code, self.dell_dmi_button, "Dell")
+            return
         if tag == "DMI_EXPORT_DONE":
             self.handle_dmi_export_done(code)
             return
@@ -1049,9 +1089,9 @@ class ClearMeGui(tk.Tk):
         self.lenovo_dmi_button.configure(state="normal")
         self.hp_dmi_button.configure(state="normal")
         self.acer_dmi_button.configure(state="normal")
+        self.dell_dmi_button.configure(state="normal")
         self.status_var.set(self.t("ready") if code == 0 else self.t("error"))
         if code != 0:
-            self.log_error(f"Export {self.last_oem_dmi_vendor or 'OEM'} DMI stopped with exit code {code}.")
             return
         outputs = self.dmi_transfer_outputs()
         if outputs:
@@ -1059,6 +1099,7 @@ class ClearMeGui(tk.Tk):
             package_key = {
                 "HP": "hp_dmi_package",
                 "Acer": "acer_dmi_package",
+                "Dell": "dell_dmi_package",
             }.get(self.last_oem_dmi_vendor or "", "dmi_package")
             self.input_paths[package_key] = str(outputs[0])
             self.vars[package_key].set(outputs[0].name)
@@ -1068,6 +1109,7 @@ class ClearMeGui(tk.Tk):
         self.import_dmi_button.configure(state="normal")
         self.import_hp_dmi_button.configure(state="normal")
         self.import_acer_dmi_button.configure(state="normal")
+        self.import_dell_dmi_button.configure(state="normal")
         self.status_var.set(self.t("import_complete") if code == 0 else self.t("error"))
         if code != 0:
             self.log_error(f"Import {self.last_oem_dmi_vendor or 'OEM'} DMI stopped with exit code {code}.")
@@ -1270,6 +1312,8 @@ class ClearMeGui(tk.Tk):
             self.input_path("hp_dmi_package"),
             self.input_path("acer_dmi_target"),
             self.input_path("acer_dmi_package"),
+            self.input_path("dell_dmi_target"),
+            self.input_path("dell_dmi_package"),
             *self.selected_bios_files(),
             *self.last_oem_dmi_files,
         ]

@@ -54,6 +54,14 @@ HP_UNLOCK_SCAN_SIZE = 0x1000
 HP_UNLOCK_REQUIRED_MARKERS = (b"H_AuthVar\x00", b"H_SmartCover\x00")
 HP_UNLOCK_OPTIONAL_MARKERS = (b"H_ShrdCrInf\x00", b"H_MeFwEcSts\x00")
 HP_EC_UNLOCK_REQUIRED_MARKERS = (b"H_AuthVar\x00", b"H_ShrdCrInf\x00", b"H_MeFwEcSts\x00")
+DELL_DMI_BLOCK_SIZE = 0x10000
+DELL_IDENTITY_BLOCK_SIZE = 0x100
+DELL_DMI_MARKER = b"$DMI"
+DELL_SERVICE_TAG_NAME = "EfiD01ServiceTag".encode("utf-16le") + b"\x00\x00"
+DELL_EPPID_NAME = "D01EppidVar".encode("utf-16le") + b"\x00\x00"
+DELL_SERVICE_TAG_PATTERN = re.compile(rb"^[A-Z0-9]{7}$")
+DELL_MODEL_PATTERN = re.compile(r"^\$?(Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)\b", re.IGNORECASE)
+DELL_MODEL_BYTES_PATTERN = re.compile(rb"\$?(?:Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [ -~]{2,40})?", re.IGNORECASE)
 
 
 @dataclass
@@ -905,6 +913,127 @@ def export_acer_dmi(source: Path) -> tuple[Path, int]:
     return output, len(blocks)
 
 
+def dell_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks: list[tuple[int, bytes]] = []
+    used: set[int] = set()
+    if len(buffer) >= DELL_IDENTITY_BLOCK_SIZE:
+        identity = buffer[:DELL_IDENTITY_BLOCK_SIZE]
+        ppid_match = re.match(rb"CN[A-Z0-9]{20,}", identity[0x10:0x30])
+        ppid = ppid_match.group(0) if ppid_match else b""
+        tag = identity[0x30:0x37]
+        if re.fullmatch(rb"CN[A-Z0-9]{20,}", ppid) and DELL_SERVICE_TAG_PATTERN.fullmatch(tag):
+            blocks.append((0, identity))
+            used.add(0)
+    anchors = [
+        *find_all_bytes(buffer, DELL_DMI_MARKER),
+        *find_all_bytes(buffer, DELL_SERVICE_TAG_NAME),
+        *find_all_bytes(buffer, DELL_EPPID_NAME),
+    ]
+    for anchor in anchors:
+        start = max(0, anchor & ~(DELL_DMI_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + DELL_DMI_BLOCK_SIZE)
+        if start in used:
+            continue
+        block = buffer[start:end]
+        if DELL_DMI_MARKER not in block:
+            continue
+        if DELL_SERVICE_TAG_NAME not in block and DELL_EPPID_NAME not in block:
+            continue
+        used.add(start)
+        blocks.append((start, block))
+    for match in DELL_MODEL_BYTES_PATTERN.finditer(buffer):
+        anchor = match.start()
+        if anchor >= 0x100000:
+            continue
+        start = max(0, anchor & ~(DELL_DMI_BLOCK_SIZE - 1))
+        end = min(len(buffer), start + DELL_DMI_BLOCK_SIZE)
+        if start in used:
+            continue
+        block = buffer[start:end]
+        if not DELL_MODEL_BYTES_PATTERN.search(block):
+            continue
+        used.add(start)
+        blocks.append((start, block))
+    return blocks
+
+
+def dell_ascii_after_name(block: bytes, name: bytes, limit: int = 128) -> str:
+    offset = block.find(name)
+    if offset < 0:
+        return ""
+    start = offset + len(name)
+    for match in re.finditer(rb"[ -~]{3,}", block[start:start + limit]):
+        value = match.group().decode("ascii", errors="ignore").strip()
+        if value:
+            return value
+    return ""
+
+
+def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    items: list[LenovoDmiItem] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_item(label: str, value: str) -> None:
+        value = value.strip().strip("$").strip()
+        if not value or (label, value) in seen:
+            return
+        seen.add((label, value))
+        items.append(LenovoDmiItem(label, value))
+
+    if len(buffer) >= DELL_IDENTITY_BLOCK_SIZE:
+        identity = buffer[:DELL_IDENTITY_BLOCK_SIZE]
+        ppid_match = re.match(rb"CN[A-Z0-9]{20,}", identity[0x10:0x30])
+        values = [
+            ("Service Tag", identity[0x30:0x37].decode("ascii", errors="ignore")),
+            ("PPID", ppid_match.group(0).decode("ascii", errors="ignore") if ppid_match else ""),
+        ]
+        for label, value in values:
+            if label == "Service Tag" and not DELL_SERVICE_TAG_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
+                continue
+            if label == "PPID" and not value.startswith("CN"):
+                continue
+            add_item(label, value)
+    for _offset, block in dell_dmi_blocks(buffer):
+        if len(block) == DELL_IDENTITY_BLOCK_SIZE:
+            continue
+        values = [
+            ("Service Tag", dell_ascii_after_name(block, DELL_SERVICE_TAG_NAME)),
+            ("PPID", dell_ascii_after_name(block, DELL_EPPID_NAME, 256)),
+        ]
+        for label, value in values:
+            if label == "Service Tag" and not DELL_SERVICE_TAG_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
+                continue
+            if not value or (label, value) in seen:
+                continue
+            add_item(label, value)
+        for match in re.findall(rb"[ -~]{4,}", block):
+            value = match.decode("ascii", errors="ignore").strip()
+            if DELL_MODEL_PATTERN.match(value):
+                add_item("Model", value)
+            elif WINKEY_PATTERN.fullmatch(match):
+                add_item("Windows Key", value)
+    return items
+
+
+def dell_dmi_export_name(source: Path) -> Path:
+    return unique_output_path(source.with_name(f"{source.stem}_DELL_DMI.delldmi"))
+
+
+def dell_dmi_import_output_name(target: Path) -> Path:
+    suffix = target.suffix or ".bin"
+    return unique_output_path(target.with_name(f"{target.stem}_DELL_DMI{suffix}"))
+
+
+def export_dell_dmi(source: Path) -> tuple[Path, int]:
+    blocks = dell_dmi_blocks(source.read_bytes())
+    if not blocks:
+        raise RuntimeError("Dell DMI block was not found.")
+    payload = dmi_package_payload("Dell", blocks)
+    output = dell_dmi_export_name(source)
+    output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output, len(blocks)
+
+
 def dmi_block_meta(offset: int, block: bytes) -> dict:
     return {
         "offset": offset,
@@ -947,7 +1076,7 @@ def export_hp_dmi(source: Path) -> tuple[Path, int]:
 def load_dmi_package(path: Path) -> tuple[str, list[bytes], list[dict]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     package_format = payload.get("format")
-    if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI", "AutoClearME Acer DMI"}:
+    if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI", "AutoClearME Acer DMI", "AutoClearME Dell DMI"}:
         raise RuntimeError("Invalid DMI package.")
     blocks = payload.get("blocks")
     if not isinstance(blocks, list) or not blocks:
@@ -960,7 +1089,7 @@ def load_dmi_package(path: Path) -> tuple[str, list[bytes], list[dict]]:
 
 def dmi_block_markers(block: bytes) -> tuple[bytes, ...]:
     markers = []
-    for marker in (HP_LEGACY_DMI_MARKER, HP_INSYDE_DMI_MARKER, HP_MUD_MARKER, b"HP ", b"LENV", b"Acer"):
+    for marker in (HP_LEGACY_DMI_MARKER, HP_INSYDE_DMI_MARKER, HP_MUD_MARKER, b"HP ", b"LENV", b"Acer", DELL_DMI_MARKER):
         if marker in block:
             markers.append(marker)
     return tuple(markers)
@@ -1023,6 +1152,9 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
     elif kind_lower == "acer":
         target_blocks = acer_dmi_blocks(data)
         output_name = acer_dmi_import_output_name(target)
+    elif kind_lower == "dell":
+        target_blocks = dell_dmi_blocks(data)
+        output_name = dell_dmi_import_output_name(target)
     else:
         target_blocks = lenovo_dmi_blocks(data)
         output_name = lenovo_dmi_import_output_name(target)
@@ -2471,6 +2603,52 @@ def command_acer_dmi_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_dell_dmi(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Finding Dell DMI in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            items = find_dell_dmi(path.read_bytes())
+            if not items:
+                print("  No Dell DMI found", flush=True)
+                continue
+            for item in items:
+                print(f"  {item.label}: {item.value}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Find Dell DMI failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_dell_dmi_export(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    print(f"[INFO] Export Dell DMI from {log_path_name(path)}", flush=True)
+    try:
+        if not path.exists():
+            print(f"  File does not exist: {log_path_name(path)}", flush=True)
+            return 2
+        items = find_dell_dmi(path.read_bytes())
+        preview = {item.label: item.value for item in items if item.label in {"Service Tag", "Model", "Windows Key"}}
+        for label in ("Service Tag", "Model", "Windows Key"):
+            value = preview.get(label)
+            if value:
+                print(f"  {label}: {value}", flush=True)
+            elif label == "Service Tag":
+                print("  Service Tag: Encoded, can not parse", flush=True)
+        output, count = export_dell_dmi(path)
+        print(f"  Blocks: {count}", flush=True)
+        print(f"  Output: {log_path_name(output)}", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"  Export Dell DMI failed: {exc}", flush=True)
+        return 2
+
+
 def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     package = Path(args.dmi).resolve()
@@ -2617,6 +2795,14 @@ def build_parser() -> argparse.ArgumentParser:
     acer_export = sub.add_parser("acer-dmi-export", help="Export Acer DMI blocks to a .acerdmi package.")
     acer_export.add_argument("--input", required=True, help="Source BIOS dump.")
     acer_export.set_defaults(func=command_acer_dmi_export)
+
+    dell_dmi = sub.add_parser("dell-dmi", help="Find Dell DMI data in BIOS dump(s).")
+    dell_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
+    dell_dmi.set_defaults(func=command_dell_dmi)
+
+    dell_export = sub.add_parser("dell-dmi-export", help="Export Dell DMI blocks to a .delldmi package.")
+    dell_export.add_argument("--input", required=True, help="Source BIOS dump.")
+    dell_export.set_defaults(func=command_dell_dmi_export)
 
     lenovo_import = sub.add_parser("lenovo-dmi-import", help="Import Lenovo DMI blocks into another BIOS dump.")
     lenovo_import.add_argument("--dmi", required=True, help="Lenovo DMI .lendmi package.")
