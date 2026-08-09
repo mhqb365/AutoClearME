@@ -724,10 +724,11 @@ class ClearMeGui(tk.Tk):
             self.vars["chip1_size"].set(data["chip1_size"])
         if data.get("language") in LANG_NAMES:
             self.lang_var.set(LANG_NAMES[data["language"]])
-        mode = data.get("mode", "single")
-        self.mode_var.set(mode if mode in {"single", "dual"} else "single")
+        self.mode_var.set("single")
         if hasattr(self, "tabs"):
-            self.tabs.select(1 if self.mode_var.get() == "dual" else 0)
+            self.tabs.select(0)
+            self.show_main_actions(True)
+            self.update_tabs_height()
         self.apply_language()
 
     def save_config(self, silent: bool = False) -> None:
