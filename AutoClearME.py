@@ -980,6 +980,9 @@ def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
         seen.add((label, value))
         items.append(LenovoDmiItem(label, value))
 
+    def has_label(label: str) -> bool:
+        return any(item.label == label for item in items)
+
     if len(buffer) >= DELL_IDENTITY_BLOCK_SIZE:
         identity = buffer[:DELL_IDENTITY_BLOCK_SIZE]
         ppid_match = re.match(rb"CN[A-Z0-9]{20,}", identity[0x10:0x30])
@@ -993,7 +996,8 @@ def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
             if label == "PPID" and not value.startswith("CN"):
                 continue
             add_item(label, value)
-    for _offset, block in dell_dmi_blocks(buffer):
+    blocks = dell_dmi_blocks(buffer)
+    for _offset, block in blocks:
         if len(block) == DELL_IDENTITY_BLOCK_SIZE:
             continue
         values = [
@@ -1012,6 +1016,10 @@ def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
                 add_item("Model", value)
             elif WINKEY_PATTERN.fullmatch(match):
                 add_item("Windows Key", value)
+    if blocks and not has_label("Service Tag"):
+        add_item("Service Tag", "Encoded, can not parse")
+    order = {"Service Tag": 0, "Model": 1, "Windows Key": 2, "PPID": 3}
+    items.sort(key=lambda item: order.get(item.label, 99))
     return items
 
 
@@ -2532,7 +2540,6 @@ def command_lenovo_dmi_export(args: argparse.Namespace) -> int:
     if not path.exists():
         raise RuntimeError(f"File does not exist: {log_path_name(path)}")
     output, count = export_lenovo_dmi(path)
-    print(f"  Blocks: {count}", flush=True)
     print(f"  Output: {log_path_name(output)}", flush=True)
     return 0
 
@@ -2565,7 +2572,6 @@ def command_hp_dmi_export(args: argparse.Namespace) -> int:
     if not path.exists():
         raise RuntimeError(f"File does not exist: {log_path_name(path)}")
     output, count = export_hp_dmi(path)
-    print(f"  Blocks: {count}", flush=True)
     print(f"  Output: {log_path_name(output)}", flush=True)
     return 0
 
@@ -2598,7 +2604,6 @@ def command_acer_dmi_export(args: argparse.Namespace) -> int:
     if not path.exists():
         raise RuntimeError(f"File does not exist: {log_path_name(path)}")
     output, count = export_acer_dmi(path)
-    print(f"  Blocks: {count}", flush=True)
     print(f"  Output: {log_path_name(output)}", flush=True)
     return 0
 
@@ -2632,16 +2637,7 @@ def command_dell_dmi_export(args: argparse.Namespace) -> int:
         if not path.exists():
             print(f"  File does not exist: {log_path_name(path)}", flush=True)
             return 2
-        items = find_dell_dmi(path.read_bytes())
-        preview = {item.label: item.value for item in items if item.label in {"Service Tag", "Model", "Windows Key"}}
-        for label in ("Service Tag", "Model", "Windows Key"):
-            value = preview.get(label)
-            if value:
-                print(f"  {label}: {value}", flush=True)
-            elif label == "Service Tag":
-                print("  Service Tag: Encoded, can not parse", flush=True)
         output, count = export_dell_dmi(path)
-        print(f"  Blocks: {count}", flush=True)
         print(f"  Output: {log_path_name(output)}", flush=True)
         return 0
     except Exception as exc:
