@@ -622,7 +622,7 @@ class ClearMeGui(tk.Tk):
         message = self.t("update_available_message").format(version=version)
         changelog = self.format_changelog(info.get("changelog", ""))
         if changelog:
-            message = f"{message}\n\n{self.t('changelog')}:\n{changelog}"
+            message = f"{message}\n\n{self.t('changelog')}:\n\n{changelog}"
         if not messagebox.askyesno(self.t("update_available_title"), message, parent=self):
             return
         self.log_info(self.t("update_starting"))
