@@ -101,6 +101,13 @@ class BuildResult:
 
 
 @dataclass
+class FlashRegion:
+    name: str
+    offset: int
+    size: int
+
+
+@dataclass
 class WinKeyCandidate:
     method: str
     offset: int
@@ -1645,6 +1652,60 @@ def copy_inputs(workdir: Path, image: Path, rgn: Path) -> tuple[Path, Path]:
     return input_copy, rgn_copy
 
 
+def fitc_output_text(result: dict) -> str:
+    return "\n".join(
+        [result.get("output", "") or ""]
+        + [step.get("output", "") or "" for step in result.get("steps", [])]
+    )
+
+
+def fitc_failed_me_file_system(result: dict) -> str:
+    output = fitc_output_text(result)
+    for name in ("MFS", "EFS"):
+        if f"Failed to initialize {name}" in output:
+            return name
+    return ""
+
+
+def intel_flash_descriptor_region(buffer: bytes | bytearray, region_index: int, name: str) -> FlashRegion:
+    if len(buffer) < 0x1000:
+        raise RuntimeError("Input is too small to contain an Intel Flash Descriptor.")
+    if buffer[0x10:0x14] != bytes.fromhex("5A A5 F0 0F"):
+        raise RuntimeError("Intel Flash Descriptor signature was not found.")
+    flmap0 = int.from_bytes(buffer[0x14:0x18], "little")
+    frba = ((flmap0 >> 16) & 0xFF) << 4
+    entry = frba + region_index * 4
+    if entry + 4 > len(buffer):
+        raise RuntimeError("Intel Flash Descriptor region table is out of range.")
+    value = int.from_bytes(buffer[entry:entry + 4], "little")
+    base = value & 0x0FFF
+    limit = (value >> 16) & 0x0FFF
+    if base == 0x0FFF or limit == 0 or limit < base:
+        raise RuntimeError(f"Intel Flash Descriptor does not define a valid {name} region.")
+    offset = base << 12
+    end = (limit + 1) << 12
+    if end > len(buffer):
+        raise RuntimeError(f"{name} region is outside the input file.")
+    return FlashRegion(name, offset, end - offset)
+
+
+def create_me_fs_repaired_input(input_image: Path, rgn_image: Path, workdir: Path) -> tuple[Path, FlashRegion]:
+    data = bytearray(input_image.read_bytes())
+    rgn = rgn_image.read_bytes()
+    me_region = intel_flash_descriptor_region(data, 2, "ME")
+    if len(rgn) > me_region.size:
+        raise RuntimeError(
+            f"Selected ME Region is larger than BIOS ME region ({len(rgn)} > {me_region.size} bytes)."
+        )
+    start = me_region.offset
+    end = start + me_region.size
+    data[start:end] = b"\xFF" * me_region.size
+    data[start:start + len(rgn)] = rgn
+    output = workdir / "input_me_fs_repaired.bin"
+    output.write_bytes(data)
+    return output, me_region
+
+
 def maybe_run_fitc(fitc: Path, workdir: Path, input_image: Path, me_region: Path, output_image: Path) -> dict:
     help_code, help_out = run([str(fitc), "-?"], cwd=fitc.parent)
     result = {
@@ -1704,6 +1765,20 @@ def summarize_fitc_failure(fitc_runs: list[dict]) -> str:
         r"MFIT version used to build the image: ([^\n]+)",
     ):
         source_versions.extend(v.strip() for v in re.findall(pattern, combined_output))
+    failed_fs = next((name for name in ("MFS", "EFS") if f"Failed to initialize {name}" in combined_output), "")
+    if failed_fs:
+        lines = [
+            f"FIT could not initialize ME {failed_fs}.",
+            "Auto repair was attempted by replacing the BIOS ME region with the selected RGN when the Intel Flash Descriptor was readable.",
+        ]
+        repair_errors = [
+            value.strip()
+            for value in re.findall(r"ME file system repair retry was skipped: ([^\n]+)", combined_output)
+            if value.strip()
+        ]
+        if repair_errors:
+            lines.append("Repair retry failed: " + repair_errors[-1])
+        return "\n".join(lines)
     if "Failed to parse CSE region" in combined_output:
         lines = ["FIT could not parse the CSE region in this dump."]
         if source_versions:
@@ -2295,6 +2370,33 @@ def try_fit_build(
         fitc_runs.append(fitc_result)
         (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
         built = work_output if work_output.exists() else find_built_image(workdir, candidate_fitc)
+        failed_fs = fitc_failed_me_file_system(fitc_result)
+        if not (fitc_succeeded(fitc_result, work_output) or built) and failed_fs:
+            print(f"[5/5] FIT failed to initialize {failed_fs}, manual fix then retry FIT.", flush=True)
+            retry_output = clearme_output_name(output_source, workdir)
+            try:
+                repaired_input, me_region = create_me_fs_repaired_input(input_copy, rgn_copy, workdir)
+                retry_result = maybe_run_fitc(candidate_fitc, workdir, repaired_input, rgn_copy, retry_output)
+                retry_result["me_fs_repair"] = {
+                    "failed_fs": failed_fs,
+                    "input": str(repaired_input),
+                    "me_offset": me_region.offset,
+                    "me_size": me_region.size,
+                    "rgn_size": rgn_copy.stat().st_size,
+                }
+            except Exception as exc:
+                retry_result = {
+                    "fitc": str(candidate_fitc),
+                    "ran": False,
+                    "code": 2,
+                    "output": f"ME file system repair retry was skipped: {exc}",
+                    "steps": [],
+                    "me_fs_repair": {"failed_fs": failed_fs, "error": str(exc)},
+                }
+            fitc_runs.append(retry_result)
+            (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
+            built = retry_output if retry_output.exists() else find_built_image(workdir, candidate_fitc)
+            fitc_result = retry_result
         if not (fitc_succeeded(fitc_result, work_output) or built):
             continue
         fitc = candidate_fitc
