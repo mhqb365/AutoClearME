@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import ctypes
 import datetime as _dt
 import hashlib
+import io
 import json
 import os
 import re
@@ -2645,6 +2647,43 @@ def command_dell_dmi_export(args: argparse.Namespace) -> int:
         return 2
 
 
+def command_dell_pfs_extract(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    output = unique_output_path(path.with_name("DELL_PFS"))
+    print(f"[INFO] Extract Dell PFS from {log_path_name(path)}", flush=True)
+    try:
+        if not path.exists():
+            print(f"  File does not exist: {log_path_name(path)}", flush=True)
+            return 2
+        try:
+            from biosutilities.dell_pfs_extract import DellPfsExtract
+        except Exception as exc:
+            print(f"  Missing dependency: biosutilities ({exc})", flush=True)
+            print("  Please run: python -m pip install -r requirements.txt", flush=True)
+            return 2
+        extractor = DellPfsExtract(
+            input_object=str(path),
+            extract_path=str(output),
+            advanced=args.advanced,
+            structure=args.structure,
+        )
+        if not extractor.check_format():
+            print("  Dell PFS/PKG format was not detected.", flush=True)
+            return 2
+        capture = io.StringIO()
+        with contextlib.redirect_stdout(capture):
+            extractor.parse_format()
+        for line in capture.getvalue().splitlines():
+            line = line.rstrip()
+            if line.strip():
+                print(line, flush=True)
+        print(f"  Output: {log_path_name(output)}", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"  Extract Dell PFS failed: {exc}", flush=True)
+        return 2
+
+
 def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     package = Path(args.dmi).resolve()
@@ -2799,6 +2838,12 @@ def build_parser() -> argparse.ArgumentParser:
     dell_export = sub.add_parser("dell-dmi-export", help="Export Dell DMI blocks to a .delldmi package.")
     dell_export.add_argument("--input", required=True, help="Source BIOS dump.")
     dell_export.set_defaults(func=command_dell_dmi_export)
+
+    dell_pfs = sub.add_parser("dell-pfs-extract", help="Extract Dell PFS/PKG update images.")
+    dell_pfs.add_argument("--input", required=True, help="Dell BIOS update/PFS/PKG image. Output goes to DELL_PFS next to input.")
+    dell_pfs.add_argument("--advanced", action="store_true", help="Enable BIOSUtilities advanced extraction.")
+    dell_pfs.add_argument("--structure", action="store_true", help="Preserve BIOSUtilities structure output.")
+    dell_pfs.set_defaults(func=command_dell_pfs_extract)
 
     lenovo_import = sub.add_parser("lenovo-dmi-import", help="Import Lenovo DMI blocks into another BIOS dump.")
     lenovo_import.add_argument("--dmi", required=True, help="Lenovo DMI .lendmi package.")

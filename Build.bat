@@ -4,14 +4,12 @@ cd /d "%~dp0"
 
 echo Packaging portable app to dist...
 
-if not exist "runtime\Python\python.exe" (
-  echo Preparing bundled Python runtime...
-  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PrepareRuntime.ps1"
-  if errorlevel 1 (
-    echo Failed to prepare bundled Python runtime.
-    pause
-    exit /b 1
-  )
+echo Preparing bundled Python runtime...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PrepareRuntime.ps1"
+if errorlevel 1 (
+  echo Failed to prepare bundled Python runtime.
+  pause
+  exit /b 1
 )
 
 if exist "dist" rmdir /s /q "dist"

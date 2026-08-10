@@ -42,12 +42,14 @@ FALLBACK_TEXT = {
         "lenovo_dmi_tab": "Lenovo DMI",
         "hp_dmi_tab": "HP DMI",
         "dell_dmi_tab": "Dell DMI",
+        "dell_pfs_tab": "Dell PFS",
         "bios_file": "BIOS file",
         "bios_file_1": "BIOS file 1",
         "bios_file_2": "BIOS file 2",
         "source_bios": "Source BIOS",
         "dmi_package": "DMI package",
         "target_bios": "Target BIOS",
+        "dell_pfs_file": "File .exe",
         "import_dmi": "Import Lenovo DMI",
         "import_hp_dmi": "Import HP DMI",
         "import_acer_dmi": "Import Acer DMI",
@@ -62,6 +64,7 @@ FALLBACK_TEXT = {
         "hp_dmi": "Export HP DMI",
         "acer_dmi": "Export Acer DMI",
         "dell_dmi": "Export Dell DMI",
+        "extract_dell_pfs": "Extract Dell PFS",
         "dell_dmi_warning": "Current feature works well on AMD; Intel still needs more testing, please consider before using.",
         "acer_dmi_tab": "Acer DMI",
         "clear_me": "Clear ME",
@@ -109,12 +112,14 @@ FALLBACK_TEXT = {
         "lenovo_dmi_tab": "Lenovo DMI",
         "hp_dmi_tab": "HP DMI",
         "dell_dmi_tab": "Dell DMI",
+        "dell_pfs_tab": "Dell PFS",
         "bios_file": "File BIOS",
         "bios_file_1": "File BIOS 1",
         "bios_file_2": "File BIOS 2",
         "source_bios": "BIOS nguồn",
         "dmi_package": "Gói DMI",
         "target_bios": "BIOS đích",
+        "dell_pfs_file": "File .exe",
         "import_dmi": "Nhập DMI",
         "import_hp_dmi": "Nhập HP DMI",
         "import_acer_dmi": "Nhập Acer DMI",
@@ -129,6 +134,7 @@ FALLBACK_TEXT = {
         "hp_dmi": "Export HP DMI",
         "acer_dmi": "Export Acer DMI",
         "dell_dmi": "Export Dell DMI",
+        "extract_dell_pfs": "Extract Dell PFS",
         "dell_dmi_warning": "Tính năng hiện tại hoạt động tốt trên AMD; Intel vẫn cần nhiều thử nghiệm hơn, vui lòng cân nhắc khi sử dụng.",
         "acer_dmi_tab": "Acer DMI",
         "clear_me": "Clear ME",
@@ -251,6 +257,7 @@ class ClearMeGui(tk.Tk):
             "acer_dmi_target": tk.StringVar(),
             "dell_dmi_package": tk.StringVar(),
             "dell_dmi_target": tk.StringVar(),
+            "dell_pfs_input": tk.StringVar(),
             "rgn_choice": tk.StringVar(),
             "fit_choice": tk.StringVar(),
             "chip1_size": tk.StringVar(value="8MB"),
@@ -339,6 +346,15 @@ class ClearMeGui(tk.Tk):
         self.import_dell_dmi_button = dell_dmi_tab.import_button
         self.dell_dmi_button = dell_dmi_tab.find_button
         tabs.add(dell_dmi_tab, text="")
+
+        dell_pfs_tab = ttk.Frame(tabs, padding=10)
+        dell_pfs_tab.columnconfigure(1, weight=1)
+        self.path_row(dell_pfs_tab, 0, "dell_pfs_file", "dell_pfs_input", self.pick_dell_pfs_input, clearable=True)
+        dell_pfs_actions = ttk.Frame(dell_pfs_tab)
+        dell_pfs_actions.grid(row=1, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        self.dell_pfs_button = ttk.Button(dell_pfs_actions, command=self.start_dell_pfs_extract)
+        self.dell_pfs_button.grid(row=0, column=0)
+        tabs.add(dell_pfs_tab, text="")
 
         hp_dmi_tab = self.build_dmi_import_tab(
             tabs,
@@ -501,8 +517,9 @@ class ClearMeGui(tk.Tk):
         self.tabs.tab(1, text=self.t("dual_bios"))
         self.tabs.tab(2, text=self.t("acer_dmi_tab"))
         self.tabs.tab(3, text=self.t("dell_dmi_tab"))
-        self.tabs.tab(4, text=self.t("hp_dmi_tab"))
-        self.tabs.tab(5, text=self.t("lenovo_dmi_tab"))
+        self.tabs.tab(4, text=self.t("dell_pfs_tab"))
+        self.tabs.tab(5, text=self.t("hp_dmi_tab"))
+        self.tabs.tab(6, text=self.t("lenovo_dmi_tab"))
         self.import_dmi_button.configure(text=self.t("import_dmi"))
         self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.import_acer_dmi_button.configure(text=self.t("import_acer_dmi"))
@@ -515,6 +532,7 @@ class ClearMeGui(tk.Tk):
         self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.acer_dmi_button.configure(text=self.t("acer_dmi"))
         self.dell_dmi_button.configure(text=self.t("dell_dmi"))
+        self.dell_pfs_button.configure(text=self.t("extract_dell_pfs"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -649,6 +667,13 @@ class ClearMeGui(tk.Tk):
         if path:
             self.vars[key].set(path)
 
+    def pick_folder_path(self, key: str) -> None:
+        initial = self.input_path(key) or str(Path.home())
+        path = filedialog.askdirectory(initialdir=initial)
+        if path:
+            self.input_paths[key] = path
+            self.vars[key].set(path)
+
     def pick_input(self, key: str) -> None:
         path = filedialog.askopenfilename(
             title=self.t("select_input_title"),
@@ -659,6 +684,15 @@ class ClearMeGui(tk.Tk):
             self.vars[key].set(Path(path).name)
             if key in {"input", "dual_file1", "dual_file2"}:
                 self.start_analyze_selected()
+
+    def pick_dell_pfs_input(self, key: str) -> None:
+        path = filedialog.askopenfilename(
+            title=self.t("dell_pfs_file"),
+            filetypes=[("Dell update/PFS", "*.exe *.bin *.pfs *.pkg *.cab"), ("All files", "*.*")],
+        )
+        if path:
+            self.input_paths[key] = path
+            self.vars[key].set(Path(path).name)
 
     def pick_dmi_package(self, key: str) -> None:
         path = filedialog.askopenfilename(
@@ -810,6 +844,17 @@ class ClearMeGui(tk.Tk):
 
     def start_find_dell_dmi(self) -> None:
         self.start_find_oem_dmi("Dell", "dell-dmi", "dell_dmi_target", self.dell_dmi_button, "DELL_DMI_DONE")
+
+    def start_dell_pfs_extract(self) -> None:
+        source = self.input_path("dell_pfs_input")
+        if not source:
+            self.log_info("Extract Dell PFS skipped: please select file first")
+            return
+        self.dell_pfs_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_result = ""
+        cmd = self.engine_cmd("dell-pfs-extract", "--input", source)
+        threading.Thread(target=self.run_command, args=(cmd, "DELL_PFS_DONE"), daemon=True).start()
 
     def start_find_oem_dmi(self, vendor: str, command: str, target_key: str, button: ttk.Button, done_tag: str) -> None:
         self.last_dmi_transfer_result = ""
@@ -975,6 +1020,9 @@ class ClearMeGui(tk.Tk):
             elif done_tag in {"LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
                 self.last_dmi_transfer_result += line
                 self.queue.put(line)
+            elif done_tag == "DELL_PFS_DONE":
+                self.last_result += line
+                self.queue.put(line)
             elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE"}:
                 self.last_unlock_result += line
                 self.queue.put(line)
@@ -1066,6 +1114,9 @@ class ClearMeGui(tk.Tk):
         if tag == "DMI_IMPORT_DONE":
             self.handle_dmi_import_done(code)
             return
+        if tag == "DELL_PFS_DONE":
+            self.handle_dell_pfs_done(code)
+            return
         self.handle_clear_done(code)
 
     def handle_find_info_done(self, code: int, button: ttk.Button, label: str) -> None:
@@ -1115,6 +1166,22 @@ class ClearMeGui(tk.Tk):
             self.log_error(f"Import {self.last_oem_dmi_vendor or 'OEM'} DMI stopped with exit code {code}.")
             return
         self.open_output_location(self.dmi_transfer_outputs())
+
+    def handle_dell_pfs_done(self, code: int) -> None:
+        self.dell_pfs_button.configure(state="normal")
+        self.status_var.set(self.t("export_complete") if code == 0 else self.t("error"))
+        if code != 0:
+            self.log_error(f"Extract Dell PFS stopped with exit code {code}.")
+            return
+        outputs = []
+        source = Path(self.input_path("dell_pfs_input")).resolve()
+        for line in self.last_result.splitlines():
+            if line.strip().startswith("Output:"):
+                name = line.split(":", 1)[1].strip()
+                candidate = source.with_name(name)
+                if candidate.exists():
+                    outputs.append(candidate)
+        self.open_output_location(outputs)
 
     def handle_unlock_done(self, code: int, button: ttk.Button, vendor: str) -> None:
         button.configure(state="normal")
