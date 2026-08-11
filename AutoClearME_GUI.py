@@ -646,8 +646,9 @@ class ClearMeGui(tk.Tk):
         update_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_Update_Launcher_"))
         update_script = update_dir / UPDATE_SCRIPT_PATH.name
         shutil.copy2(UPDATE_SCRIPT_PATH, update_script)
+        updater_python = self.prepare_update_python(update_dir)
         cmd = [
-            self.console_python(),
+            updater_python,
             str(update_script),
             "--url",
             url,
@@ -658,6 +659,16 @@ class ClearMeGui(tk.Tk):
         ]
         subprocess.Popen(cmd, cwd=str(update_dir), **self.hidden_process_kwargs())
         self.after(300, self.destroy)
+
+    def prepare_update_python(self, update_dir: Path) -> str:
+        runtime_root = APP_DIR / "Runtime" / "Python"
+        if runtime_root.exists():
+            temp_runtime = update_dir / "Runtime" / "Python"
+            shutil.copytree(runtime_root, temp_runtime, dirs_exist_ok=True)
+            python = temp_runtime / "python.exe"
+            if python.exists():
+                return str(python)
+        return self.console_python()
 
     def open_about(self) -> None:
         webbrowser.open("https://github.com/mhqb365/AutoClearME")

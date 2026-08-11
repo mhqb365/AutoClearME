@@ -10,27 +10,44 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.request
 import urllib.error
 import zipfile
 from pathlib import Path
+import queue
+import tkinter as tk
+from tkinter import ttk, messagebox
 
 
-KEEP_FILES = {"config.json", "Runtime"}
+KEEP_FILES = {"config.json"}
 REQUIRED_FILES = [
     "Run.bat",
     "AutoClearME.py",
     "AutoClearME_GUI.py",
     "VERSION",
+    str(Path("Runtime") / "Python" / "python.exe"),
     str(Path("MEA") / "MEA.py"),
 ]
+PROGRESS_QUEUE: queue.Queue[tuple[str, object]] | None = None
+
+
+def progress(message: str) -> None:
+    print(message, flush=True)
+    if PROGRESS_QUEUE is not None:
+        PROGRESS_QUEUE.put(("message", message))
+
+
+def progress_done(code: int) -> None:
+    if PROGRESS_QUEUE is not None:
+        PROGRESS_QUEUE.put(("done", code))
 
 
 def wait_for_parent(pid: int) -> None:
     if pid <= 0 or os.name != "nt":
         return
-    print("Waiting for Auto Clear ME to close...", flush=True)
+    progress("Waiting for Auto Clear ME to close...")
     synchronize = 0x00100000
     handle = ctypes.windll.kernel32.OpenProcess(synchronize, False, pid)
     if not handle:
@@ -42,7 +59,7 @@ def wait_for_parent(pid: int) -> None:
 
 
 def download(url: str, target: Path) -> None:
-    print(f"Downloading: {url}", flush=True)
+    progress("Downloading update package...")
     last_error: Exception | None = None
     for attempt in range(1, 4):
         try:
@@ -55,11 +72,11 @@ def download(url: str, target: Path) -> None:
             )
             with urllib.request.urlopen(request, timeout=90) as response, target.open("wb") as output:
                 shutil.copyfileobj(response, output)
-            print(f"Downloaded: {target}", flush=True)
+            progress("Download complete.")
             return
         except (OSError, urllib.error.URLError) as exc:
             last_error = exc
-            print(f"Download attempt {attempt}/3 failed: {exc}", flush=True)
+            progress(f"Download attempt {attempt}/3 failed. Retrying...")
             if attempt < 3:
                 time.sleep(2 * attempt)
     raise RuntimeError(
@@ -77,17 +94,17 @@ def find_payload_root(extract_dir: Path) -> Path:
 
 
 def validate_payload(payload: Path) -> None:
-    print(f"Validating package: {payload}", flush=True)
+    progress("Validating package...")
     missing = [name for name in REQUIRED_FILES if not (payload / name).exists()]
     if missing:
         raise RuntimeError("Release ZIP is missing required files: " + ", ".join(missing))
 
 
 def replace_app(payload: Path, app_dir: Path) -> None:
-    print(f"Replacing app files in: {app_dir}", flush=True)
+    progress("Replacing app files...")
     for item in app_dir.iterdir():
         if item.name in KEEP_FILES:
-            print(f"Keeping existing: {item.name}", flush=True)
+            progress(f"Keeping existing: {item.name}")
             continue
         if item.name.lower() == "autoclearme_update.py":
             continue
@@ -99,13 +116,13 @@ def replace_app(payload: Path, app_dir: Path) -> None:
     for item in payload.iterdir():
         target = app_dir / item.name
         if item.name in KEEP_FILES and target.exists():
-            print(f"Skipping bundled replacement for existing: {item.name}", flush=True)
+            progress(f"Keeping existing: {item.name}")
             continue
         if item.is_dir():
             shutil.copytree(item, target, dirs_exist_ok=True)
         else:
             shutil.copy2(item, target)
-    print("App files replaced.", flush=True)
+    progress("App files replaced.")
 
 
 def relaunch(app_dir: Path) -> None:
@@ -115,7 +132,7 @@ def relaunch(app_dir: Path) -> None:
     executable = pythonw if pythonw.exists() else python
     if not gui.exists() or not executable.exists():
         return
-    print("Restarting Auto Clear ME...", flush=True)
+    progress("Restarting Auto Clear ME...")
     startupinfo = None
     creationflags = 0
     if os.name == "nt":
@@ -131,13 +148,7 @@ def relaunch(app_dir: Path) -> None:
     )
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Apply an Auto Clear ME portable update.")
-    parser.add_argument("--url", required=True)
-    parser.add_argument("--app-dir", required=True)
-    parser.add_argument("--parent-pid", type=int, default=0)
-    args = parser.parse_args()
-
+def run_update(args: argparse.Namespace) -> int:
     app_dir = Path(args.app_dir).resolve()
     if (app_dir / ".git").exists():
         raise RuntimeError("Refusing to update a git working tree. Use Build.bat and test updates from dist.")
@@ -148,15 +159,103 @@ def main() -> int:
         archive = tmp_dir / "release.zip"
         extract_dir = tmp_dir / "extract"
         download(args.url, archive)
-        print("Extracting package...", flush=True)
+        progress("Extracting package...")
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(extract_dir)
         payload = find_payload_root(extract_dir)
         validate_payload(payload)
         replace_app(payload, app_dir)
 
-    relaunch(app_dir)
+    try:
+        relaunch(app_dir)
+    except Exception as exc:
+        progress(f"Update was applied, but restart failed: {exc}")
     return 0
+
+
+class UpdateWindow(tk.Tk):
+    def __init__(self, args: argparse.Namespace) -> None:
+        super().__init__()
+        self.args = args
+        self.title("Auto Clear ME Update")
+        self.geometry("420x140")
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
+        self.after(1000, lambda: self.attributes("-topmost", False))
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        self.status_var = tk.StringVar(value="Preparing update...")
+        frame = ttk.Frame(self, padding=18)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Updating Auto Clear ME", font=("Segoe UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(frame, textvariable=self.status_var, wraplength=380).pack(anchor="w", pady=(10, 8))
+        self.progress = ttk.Progressbar(frame, mode="indeterminate")
+        self.progress.pack(fill="x")
+        self.progress.start(12)
+        self.update_idletasks()
+        x = (self.winfo_screenwidth() - self.winfo_width()) // 2
+        y = (self.winfo_screenheight() - self.winfo_height()) // 2
+        self.geometry(f"+{x}+{y}")
+        self.after(100, self.poll_queue)
+
+    def poll_queue(self) -> None:
+        assert PROGRESS_QUEUE is not None
+        try:
+            while True:
+                kind, value = PROGRESS_QUEUE.get_nowait()
+                if kind == "message":
+                    self.status_var.set(str(value))
+                elif kind == "done":
+                    code = int(value)
+                    self.progress.stop()
+                    if code == 0:
+                        self.status_var.set("Update complete. Restarting...")
+                        self.after(600, self.destroy)
+                    else:
+                        self.status_var.set("Update failed.")
+                elif kind == "error":
+                    messagebox.showerror("Auto Clear ME Update", str(value), parent=self)
+        except queue.Empty:
+            pass
+        self.after(150, self.poll_queue)
+
+
+def run_update_with_window(args: argparse.Namespace) -> int:
+    global PROGRESS_QUEUE
+    PROGRESS_QUEUE = queue.Queue()
+    result = {"code": 0}
+
+    def worker() -> None:
+        try:
+            result["code"] = run_update(args)
+        except Exception as exc:
+            result["code"] = 2
+            progress(f"Update failed: {exc}")
+            if PROGRESS_QUEUE is not None:
+                PROGRESS_QUEUE.put(("error", str(exc)))
+        finally:
+            progress_done(result["code"])
+
+    app = UpdateWindow(args)
+    threading.Thread(target=worker, daemon=True).start()
+    app.mainloop()
+    return result["code"]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Apply an Auto Clear ME portable update.")
+    parser.add_argument("--url", required=True)
+    parser.add_argument("--app-dir", required=True)
+    parser.add_argument("--parent-pid", type=int, default=0)
+    parser.add_argument("--no-gui", action="store_true", help=argparse.SUPPRESS)
+    args = parser.parse_args()
+
+    if args.no_gui:
+        try:
+            return run_update(args)
+        except Exception as exc:
+            progress(f"Update failed: {exc}")
+            return 2
+    return run_update_with_window(args)
 
 
 if __name__ == "__main__":
