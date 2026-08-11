@@ -27,6 +27,7 @@ ENGINE_PATH = APP_DIR / "AutoClearME.py"
 ICON_PATH = APP_DIR / "icon.ico"
 VERSION_PATH = APP_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
+RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
 
 LANGUAGE_PATH = APP_DIR / "languages.json"
@@ -1037,7 +1038,8 @@ class ClearMeGui(tk.Tk):
         self.queue.put((done_tag, proc.returncode))
 
     def engine_cmd(self, *args: str) -> list[str]:
-        return [sys.executable, str(ENGINE_PATH), *args]
+        python = RUNTIME_PYTHON_PATH if RUNTIME_PYTHON_PATH.exists() else Path(sys.executable)
+        return [str(python), str(ENGINE_PATH), *args]
 
     def console_python(self) -> str:
         exe = Path(sys.executable)

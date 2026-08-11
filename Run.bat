@@ -12,9 +12,9 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 
-"%PYTHON_EXE%" -c "import tkinter, colorama, crccheck, pltable" >nul 2>nul
+"%PYTHON_EXE%" -c "import tkinter, colorama, crccheck, pltable, biosutilities; from biosutilities.common.externals import szip_path; szip_path()" >nul 2>nul
 if errorlevel 1 (
-  echo Bundled Python GUI runtime or dependencies are missing.
+  echo Bundled Python GUI runtime, dependencies, or 7-Zip tools are missing.
   echo Rebuild the release with Build.bat or download the full portable release ZIP again.
   pause
   exit /b 1

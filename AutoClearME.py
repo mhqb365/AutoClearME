@@ -2761,7 +2761,7 @@ def command_dell_pfs_extract(args: argparse.Namespace) -> int:
             from biosutilities.dell_pfs_extract import DellPfsExtract
         except Exception as exc:
             print(f"  Missing dependency: biosutilities ({exc})", flush=True)
-            print("  Please run: python -m pip install -r requirements.txt", flush=True)
+            print("  Please rebuild with Build.bat or use the full portable release package.", flush=True)
             return 2
         extractor = DellPfsExtract(
             input_object=str(path),
