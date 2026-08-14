@@ -1693,20 +1693,19 @@ def create_me_fs_repaired_input(input_image: Path, rgn_image: Path, workdir: Pat
     data = bytearray(input_image.read_bytes())
     rgn = rgn_image.read_bytes()
     me_region = intel_flash_descriptor_region(data, 2, "ME")
-    if len(rgn) > me_region.size:
-        raise RuntimeError(
-            f"Selected ME Region is larger than BIOS ME region ({len(rgn)} > {me_region.size} bytes)."
-        )
     start = me_region.offset
-    end = start + me_region.size
-    data[start:end] = b"\xFF" * me_region.size
-    data[start:start + len(rgn)] = rgn
+    end = start + len(rgn)
+    if end > len(data):
+        raise RuntimeError(
+            f"Selected ME Region does not fit from BIOS ME offset ({len(rgn)} bytes at 0x{start:X} > BIOS size {len(data)} bytes)."
+        )
+    data[start:end] = rgn
     output = workdir / "input_me_fs_repaired.bin"
     output.write_bytes(data)
     return output, me_region
 
 
-def maybe_run_fitc(fitc: Path, workdir: Path, input_image: Path, me_region: Path, output_image: Path) -> dict:
+def maybe_run_fitc(fitc: Path, workdir: Path, input_image: Path, me_region: Path | None, output_image: Path) -> dict:
     help_code, help_out = run([str(fitc), "-?"], cwd=fitc.parent)
     result = {
         "fitc": str(fitc),
@@ -1728,16 +1727,10 @@ def maybe_run_fitc(fitc: Path, workdir: Path, input_image: Path, me_region: Path
         result["output"] = out
         return result
 
-    build_cmd = [
-        str(fitc),
-        "-b",
-        "-f",
-        str(config_xml),
-        "-me",
-        str(me_region),
-        "-o",
-        str(output_image),
-    ]
+    build_cmd = [str(fitc), "-b", "-f", str(config_xml)]
+    if me_region is not None:
+        build_cmd.extend(["-me", str(me_region)])
+    build_cmd.extend(["-o", str(output_image)])
     code, out = run(build_cmd, cwd=workdir)
     result["steps"].append({"name": "build_image", "cmd": build_cmd, "code": code, "output": out})
     result["code"] = code
@@ -1779,6 +1772,9 @@ def summarize_fitc_failure(fitc_runs: list[dict]) -> str:
         if repair_errors:
             lines.append("Repair retry failed: " + repair_errors[-1])
         return "\n".join(lines)
+    invalid_size = re.findall(r"FIT output has invalid size \(([^\n]+)\)", combined_output)
+    if invalid_size:
+        return "FIT built an output with the wrong size: " + invalid_size[-1]
     if "Failed to parse CSE region" in combined_output:
         lines = ["FIT could not parse the CSE region in this dump."]
         if source_versions:
@@ -1840,7 +1836,7 @@ def maybe_run_modular_fitc(
     fitc: Path,
     workdir: Path,
     input_image: Path,
-    me_region: Path,
+    me_region: Path | None,
     output_image: Path,
     result: dict,
 ) -> dict:
@@ -1855,8 +1851,11 @@ def maybe_run_modular_fitc(
         result["output"] = out
         return result
 
-    patch_modular_config_me_region(config_xml, clean_config_xml, me_region)
-    build_cmd = [str(fitc), "--loadconfig", str(clean_config_xml), "--build", str(output_image)]
+    build_config_xml = config_xml
+    if me_region is not None:
+        patch_modular_config_me_region(config_xml, clean_config_xml, me_region)
+        build_config_xml = clean_config_xml
+    build_cmd = [str(fitc), "--loadconfig", str(build_config_xml), "--build", str(output_image)]
     code, out = run(build_cmd, cwd=workdir)
     result["steps"].append({"name": "build_image", "cmd": build_cmd, "code": code, "output": out})
     result["code"] = code
@@ -1894,6 +1893,27 @@ def find_built_image(workdir: Path, fitc: Path | None) -> Path | None:
             if path.is_file() and path.name.lower() in names:
                 return path
     return None
+
+
+def valid_built_image(path: Path | None, expected_size: int) -> Path | None:
+    if path and path.exists() and path.is_file() and path.stat().st_size == expected_size:
+        return path
+    return None
+
+
+def note_invalid_built_image(result: dict, path: Path | None, expected_size: int) -> None:
+    if not path or not path.exists() or not path.is_file():
+        return
+    actual_size = path.stat().st_size
+    if actual_size == expected_size:
+        return
+    message = f"FIT output has invalid size ({actual_size} != {expected_size} bytes): {path}"
+    result["invalid_output"] = {
+        "path": str(path),
+        "actual_size": actual_size,
+        "expected_size": expected_size,
+    }
+    result["output"] = ((result.get("output") or "") + "\n" + message).strip()
 
 
 def publish_clearme_output(source: Path, original: Path, out_root: Path) -> Path:
@@ -2365,18 +2385,21 @@ def try_fit_build(
     for idx, candidate_fitc in enumerate(fitc_candidates, 1):
         print(f"[5/5] Trying FIT CLI build ({idx}/{len(fitc_candidates)}): {fitc_label(candidate_fitc)}", flush=True)
         output_source = prep.source_image or prep.image
+        expected_output_size = output_source.stat().st_size
         work_output = clearme_output_name(output_source, workdir)
         fitc_result = maybe_run_fitc(candidate_fitc, workdir, input_copy, rgn_copy, work_output)
         fitc_runs.append(fitc_result)
         (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
-        built = work_output if work_output.exists() else find_built_image(workdir, candidate_fitc)
+        built_candidate = work_output if work_output.exists() else find_built_image(workdir, candidate_fitc)
+        note_invalid_built_image(fitc_result, built_candidate, expected_output_size)
+        built = valid_built_image(built_candidate, expected_output_size)
         failed_fs = fitc_failed_me_file_system(fitc_result)
-        if not (fitc_succeeded(fitc_result, work_output) or built) and failed_fs:
+        if not built and failed_fs:
             print(f"[5/5] FIT failed to initialize {failed_fs}, manual fix then retry FIT.", flush=True)
             retry_output = clearme_output_name(output_source, workdir)
             try:
                 repaired_input, me_region = create_me_fs_repaired_input(input_copy, rgn_copy, workdir)
-                retry_result = maybe_run_fitc(candidate_fitc, workdir, repaired_input, rgn_copy, retry_output)
+                retry_result = maybe_run_fitc(candidate_fitc, workdir, repaired_input, None, retry_output)
                 retry_result["me_fs_repair"] = {
                     "failed_fs": failed_fs,
                     "input": str(repaired_input),
@@ -2395,9 +2418,11 @@ def try_fit_build(
                 }
             fitc_runs.append(retry_result)
             (workdir / "fitc_run.json").write_text(json.dumps(fitc_runs, indent=2), encoding="utf-8")
-            built = retry_output if retry_output.exists() else find_built_image(workdir, candidate_fitc)
+            built_candidate = retry_output if retry_output.exists() else find_built_image(workdir, candidate_fitc)
+            note_invalid_built_image(retry_result, built_candidate, expected_output_size)
+            built = valid_built_image(built_candidate, expected_output_size)
             fitc_result = retry_result
-        if not (fitc_succeeded(fitc_result, work_output) or built):
+        if not built:
             continue
         fitc = candidate_fitc
         published_output = publish_clearme_output(built, output_source, prep.out_root)
