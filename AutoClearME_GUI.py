@@ -31,148 +31,6 @@ RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
 
 LANGUAGE_PATH = APP_DIR / "languages.json"
-FALLBACK_TEXT = {
-    "en": {
-        "language": "Language",
-        "subtitle": "A tool to help clear ME BIOS 11+",
-        "about": "About",
-        "settings": "Settings",
-        "bios_files": "BIOS Files",
-        "single_bios": "Single BIOS",
-        "dual_bios": "Dual BIOS",
-        "lenovo_dmi_tab": "Lenovo DMI",
-        "hp_dmi_tab": "HP DMI",
-        "dell_dmi_tab": "Dell DMI",
-        "dell_pfs_tab": "Dell PFS",
-        "bios_file": "BIOS file",
-        "bios_file_1": "BIOS file 1",
-        "bios_file_2": "BIOS file 2",
-        "source_bios": "Source BIOS",
-        "dmi_package": "DMI package",
-        "target_bios": "Target BIOS",
-        "dell_pfs_file": "File .exe",
-        "import_dmi": "Import Lenovo DMI",
-        "import_hp_dmi": "Import HP DMI",
-        "import_acer_dmi": "Import Acer DMI",
-        "import_dell_dmi": "Import Dell DMI",
-        "me_region": "ME Region",
-        "fit": "FIT",
-        "winkey": "Win Key",
-        "unlock_asus": "Unlock ASUS",
-        "unlock_acer": "Unlock ACER",
-        "unlock_hp": "Unlock HP",
-        "lenovo_dmi": "Export Lenovo DMI",
-        "hp_dmi": "Export HP DMI",
-        "acer_dmi": "Export Acer DMI",
-        "dell_dmi": "Export Dell DMI",
-        "extract_dell_pfs": "Extract Dell PFS",
-        "dell_dmi_warning": "Current feature works well on AMD; Intel still needs more testing, please consider before using.",
-        "acer_dmi_tab": "Acer DMI",
-        "clear_me": "Clear ME",
-        "log": "Log",
-        "save_log": "Save log",
-        "clear_log": "Clear log",
-        "browse": "Browse...",
-        "settings_title": "Auto Clear ME Settings",
-        "data_sources": "Settings",
-        "fit_root": "FIT root",
-        "me_region_root": "ME Region root",
-        "save": "Save",
-        "close": "Close",
-        "ready": "Ready",
-        "selected_file_cleared": "Selected file cleared",
-        "analyzing": "Analyzing...",
-        "analyze_success": "Analyze success",
-        "analyze_failed": "Analyze failed",
-        "running": "Running...",
-        "clear_complete": "Clear complete",
-        "import_complete": "Import complete",
-        "unlock_complete": "Unlock complete",
-        "export_complete": "Export complete",
-        "job_prepared": "Job prepared; FIT build required",
-        "error": "Error",
-        "select_input_title": "Select BIOS dump or ME region",
-        "save_log_title": "Save log",
-        "log_empty": "Log is empty.",
-        "starting_clear": "Starting Clear ME...",
-        "automatic_clear_failed": "Automatic clear did not complete.",
-        "update_available_title": "Update available",
-        "update_available_message": "Auto Clear ME {version} is available. Download and install it now?",
-        "changelog": "Changelog",
-        "update_starting": "Starting update. The app will close and reopen after the update.",
-        "update_check_failed": "Could not check for updates.",
-    },
-    "vi": {
-        "language": "Ngôn ngữ",
-        "subtitle": "Công cụ hỗ trợ clear ME BIOS 11+",
-        "about": "Giới thiệu",
-        "settings": "Cài đặt",
-        "bios_files": "File BIOS",
-        "single_bios": "BIOS đơn",
-        "dual_bios": "BIOS kép",
-        "lenovo_dmi_tab": "Lenovo DMI",
-        "hp_dmi_tab": "HP DMI",
-        "dell_dmi_tab": "Dell DMI",
-        "dell_pfs_tab": "Dell PFS",
-        "bios_file": "File BIOS",
-        "bios_file_1": "File BIOS 1",
-        "bios_file_2": "File BIOS 2",
-        "source_bios": "BIOS nguồn",
-        "dmi_package": "Gói DMI",
-        "target_bios": "BIOS đích",
-        "dell_pfs_file": "File .exe",
-        "import_dmi": "Nhập DMI",
-        "import_hp_dmi": "Nhập HP DMI",
-        "import_acer_dmi": "Nhập Acer DMI",
-        "import_dell_dmi": "Nhập Dell DMI",
-        "me_region": "ME Region",
-        "fit": "FIT",
-        "winkey": "Win Key",
-        "unlock_asus": "Mở khóa ASUS",
-        "unlock_acer": "Mở khóa ACER",
-        "unlock_hp": "Unlock HP",
-        "lenovo_dmi": "Export Lenovo DMI",
-        "hp_dmi": "Export HP DMI",
-        "acer_dmi": "Export Acer DMI",
-        "dell_dmi": "Export Dell DMI",
-        "extract_dell_pfs": "Extract Dell PFS",
-        "dell_dmi_warning": "Tính năng hiện tại hoạt động tốt trên AMD; Intel vẫn cần nhiều thử nghiệm hơn, vui lòng cân nhắc khi sử dụng.",
-        "acer_dmi_tab": "Acer DMI",
-        "clear_me": "Clear ME",
-        "log": "Log",
-        "save_log": "Lưu log",
-        "clear_log": "Xóa log",
-        "browse": "Chọn...",
-        "settings_title": "Cài đặt Auto Clear ME",
-        "data_sources": "Cài đặt",
-        "fit_root": "FIT root",
-        "me_region_root": "ME Region root",
-        "save": "Lưu",
-        "close": "Đóng",
-        "ready": "Sẵn sàng",
-        "selected_file_cleared": "Đã xóa file đã chọn",
-        "analyzing": "Đang phân tích...",
-        "analyze_success": "Phân tích thành công",
-        "analyze_failed": "Phân tích lỗi",
-        "running": "Đang chạy...",
-        "clear_complete": "Clear hoàn tất",
-        "import_complete": "Import hoàn tất",
-        "unlock_complete": "Unlock hoàn tất",
-        "export_complete": "Export hoàn tất",
-        "job_prepared": "Đã chuẩn bị job; cần build bằng FIT",
-        "error": "Lỗi",
-        "select_input_title": "Chọn BIOS dump hoặc ME region",
-        "save_log_title": "Lưu log",
-        "log_empty": "Log trống.",
-        "starting_clear": "Bắt đầu Clear ME...",
-        "automatic_clear_failed": "Clear tự động chưa hoàn tất.",
-        "update_available_title": "Có bản cập nhật",
-        "update_available_message": "Auto Clear ME {version} đã có bản mới. Tải về và cài ngay bây giờ?",
-        "changelog": "Thay đổi",
-        "update_starting": "Đang bắt đầu cập nhật. App sẽ đóng và mở lại sau khi cập nhật xong.",
-        "update_check_failed": "Không thể kiểm tra cập nhật.",
-    }
-}
 
 
 def version_parts(value: str) -> tuple[int, int, int, int]:
@@ -202,19 +60,14 @@ def app_version() -> str:
 
 
 def load_language_bundle() -> tuple[dict[str, dict[str, str]], dict[str, str]]:
-    labels = {"English": "en", "Tiếng Việt": "vi"}
-    text = dict(FALLBACK_TEXT)
-    try:
-        data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8-sig"))
-    except Exception:
-        return text, labels
-    loaded_text = data.get("text") if isinstance(data, dict) else None
-    loaded_labels = data.get("labels") if isinstance(data, dict) else None
-    if isinstance(loaded_text, dict) and isinstance(loaded_text.get("en"), dict):
-        text = loaded_text
-    if isinstance(loaded_labels, dict) and loaded_labels:
-        labels = {str(label): str(code) for label, code in loaded_labels.items()}
-    return text, labels
+    data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8-sig"))
+    text = data["text"]
+    labels = data["labels"]
+    if not isinstance(text, dict) or not isinstance(text.get("en"), dict):
+        raise ValueError("languages.json must contain text.en")
+    if not isinstance(labels, dict) or not labels:
+        raise ValueError("languages.json must contain labels")
+    return text, {str(label): str(code) for label, code in labels.items()}
 
 
 TEXT, LANG_LABELS = load_language_bundle()
@@ -230,6 +83,9 @@ class ClearMeGui(tk.Tk):
         self.geometry("660x620")
         self.minsize(660, 620)
         self.queue: queue.Queue[str | tuple[str, object]] = queue.Queue()
+        self.current_process: subprocess.Popen | None = None
+        self.task_running = False
+        self.stop_requested = False
         self.last_result = ""
         self.last_analyze_result = ""
         self.last_oem_dmi_files: list[str] = []
@@ -397,7 +253,12 @@ class ClearMeGui(tk.Tk):
         self.clear_button = ttk.Button(action_buttons, command=self.start_clear)
         self.clear_button.grid(row=0, column=4, padx=(0, 8), pady=(0, 4))
         self.status_var = tk.StringVar(value="")
-        ttk.Label(actions, textvariable=self.status_var).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        status_bar = ttk.Frame(actions)
+        status_bar.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        status_bar.columnconfigure(0, weight=1)
+        ttk.Label(status_bar, textvariable=self.status_var).grid(row=0, column=0, sticky="w")
+        self.ui["stop_button"] = ttk.Button(status_bar, command=self.stop_current_task, state="disabled")
+        self.ui["stop_button"].grid(row=0, column=1, sticky="e")
 
         log_frame = ttk.LabelFrame(content, padding=10)
         self.ui["log_frame"] = log_frame
@@ -536,6 +397,7 @@ class ClearMeGui(tk.Tk):
         self.dell_pfs_button.configure(text=self.t("extract_dell_pfs"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
+        self.ui["stop_button"].configure(text=self.t("stop"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
         self.ui["clear_log_button"].configure(text=self.t("clear_log"))
         for label, label_key in self.translatable_labels:
@@ -773,7 +635,7 @@ class ClearMeGui(tk.Tk):
         self.analyzed_detected = {}
         self.set_candidates([], [])
         self.status_var.set(self.t("analyzing"))
-        threading.Thread(target=self.run_command, args=(cmd, "ANALYZE_DONE"), daemon=True).start()
+        self.start_command(cmd, "ANALYZE_DONE")
 
     def current_input_signature(self) -> tuple[str, ...]:
         if self.mode_var.get() == "dual":
@@ -866,7 +728,7 @@ class ClearMeGui(tk.Tk):
         self.status_var.set(self.t("running"))
         self.last_result = ""
         cmd = self.engine_cmd("dell-pfs-extract", "--input", source)
-        threading.Thread(target=self.run_command, args=(cmd, "DELL_PFS_DONE"), daemon=True).start()
+        self.start_command(cmd, "DELL_PFS_DONE")
 
     def start_find_oem_dmi(self, vendor: str, command: str, target_key: str, button: ttk.Button, done_tag: str) -> None:
         self.last_dmi_transfer_result = ""
@@ -903,7 +765,7 @@ class ClearMeGui(tk.Tk):
         self.last_dmi_transfer_result = ""
         self.last_oem_dmi_vendor = vendor
         cmd = self.engine_cmd("lenovo-dmi-import", "--dmi", package, "--target", target)
-        threading.Thread(target=self.run_command, args=(cmd, "DMI_IMPORT_DONE"), daemon=True).start()
+        self.start_command(cmd, "DMI_IMPORT_DONE")
 
     def start_export_checked_lenovo_dmi(self) -> None:
         source = self.first_oem_dmi_source()
@@ -926,7 +788,7 @@ class ClearMeGui(tk.Tk):
         self.status_var.set(self.t("running"))
         self.last_dmi_transfer_result = ""
         cmd = self.engine_cmd(command, "--input", source)
-        threading.Thread(target=self.run_command, args=(cmd, "DMI_EXPORT_DONE"), daemon=True).start()
+        self.start_command(cmd, "DMI_EXPORT_DONE")
 
     def start_find_info(self, label: str, command: str, button: ttk.Button, done_tag: str, files: list[str] | None = None) -> None:
         if files is None:
@@ -939,7 +801,7 @@ class ClearMeGui(tk.Tk):
         cmd = self.engine_cmd(command)
         for path in files:
             cmd.extend(["--input", path])
-        threading.Thread(target=self.run_command, args=(cmd, done_tag), daemon=True).start()
+        self.start_command(cmd, done_tag)
 
     def start_unlock_asus(self) -> None:
         self.start_unlock_vendor("ASUS", "unlock-asus", self.unlock_asus_button, "UNLOCK_ASUS_DONE")
@@ -961,7 +823,7 @@ class ClearMeGui(tk.Tk):
         cmd = self.engine_cmd(command)
         for path in files:
             cmd.extend(["--input", path])
-        threading.Thread(target=self.run_command, args=(cmd, done_tag), daemon=True).start()
+        self.start_command(cmd, done_tag)
 
     def start_clear(self) -> None:
         if not self.validate():
@@ -971,7 +833,7 @@ class ClearMeGui(tk.Tk):
         self.status_var.set(self.t("running"))
         self.last_result = ""
         self.log_info(self.t("starting_clear"))
-        threading.Thread(target=self.run_command, args=(self.build_clear_command(), "DONE"), daemon=True).start()
+        self.start_command(self.build_clear_command(), "DONE")
 
     def build_clear_command(self) -> list[str]:
         cmd = self.engine_cmd("prepare", "--config", str(CONFIG_PATH))
@@ -1013,6 +875,37 @@ class ClearMeGui(tk.Tk):
         if selected_fit:
             cmd.extend(["--fitc", selected_fit])
 
+    def start_command(self, cmd: list[str], done_tag: str) -> None:
+        if self.task_running:
+            self.log_warn(self.t("task_already_running"))
+            return
+        self.task_running = True
+        self.stop_requested = False
+        self.ui["stop_button"].configure(state="normal")
+        threading.Thread(target=self.run_command, args=(cmd, done_tag), daemon=True).start()
+
+    def stop_current_task(self) -> None:
+        if not self.task_running:
+            return
+        self.stop_requested = True
+        self.ui["stop_button"].configure(state="disabled")
+        self.status_var.set(self.t("stopping"))
+        proc = self.current_process
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    **self.hidden_process_kwargs(),
+                )
+            else:
+                proc.terminate()
+        except OSError:
+            pass
+
     def run_command(self, cmd: list[str], done_tag: str) -> None:
         proc = subprocess.Popen(
             cmd,
@@ -1023,6 +916,12 @@ class ClearMeGui(tk.Tk):
             errors="replace",
             **self.hidden_process_kwargs(),
         )
+        self.current_process = proc
+        if self.stop_requested and proc.poll() is None:
+            try:
+                proc.terminate()
+            except OSError:
+                pass
         assert proc.stdout is not None
         for line in proc.stdout:
             if done_tag == "ANALYZE_DONE":
@@ -1046,7 +945,8 @@ class ClearMeGui(tk.Tk):
                 if self.should_show_clear_line(line):
                     self.queue.put(line)
         proc.wait()
-        self.queue.put((done_tag, proc.returncode))
+        self.current_process = None
+        self.queue.put(("TASK_STOPPED", done_tag) if self.stop_requested else (done_tag, proc.returncode))
 
     def engine_cmd(self, *args: str) -> list[str]:
         python = RUNTIME_PYTHON_PATH if RUNTIME_PYTHON_PATH.exists() else Path(sys.executable)
@@ -1093,6 +993,13 @@ class ClearMeGui(tk.Tk):
             return
         if tag == "UPDATE_CHECK_FAILED":
             return
+        self.task_running = False
+        self.ui["stop_button"].configure(state="disabled")
+        if tag == "TASK_STOPPED":
+            self.restore_action_buttons()
+            self.status_var.set(self.t("ready"))
+            self.log_warn(self.t("operation_stopped"))
+            return
         code = int(value)
         if tag == "ANALYZE_DONE":
             self.handle_analyze_done(code)
@@ -1131,6 +1038,25 @@ class ClearMeGui(tk.Tk):
             self.handle_dell_pfs_done(code)
             return
         self.handle_clear_done(code)
+
+    def restore_action_buttons(self) -> None:
+        for button in (
+            self.clear_button,
+            self.winkey_button,
+            self.unlock_asus_button,
+            self.unlock_acer_button,
+            self.unlock_hp_button,
+            self.lenovo_dmi_button,
+            self.hp_dmi_button,
+            self.acer_dmi_button,
+            self.dell_dmi_button,
+            self.import_dmi_button,
+            self.import_hp_dmi_button,
+            self.import_acer_dmi_button,
+            self.import_dell_dmi_button,
+            self.dell_pfs_button,
+        ):
+            button.configure(state="normal")
 
     def handle_find_info_done(self, code: int, button: ttk.Button, label: str) -> None:
         button.configure(state="normal")

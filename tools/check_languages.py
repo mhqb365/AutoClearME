@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Check that GUI fallback text stays in sync with languages.json."""
+"""Validate the languages.json structure and translation keys."""
 
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 
@@ -11,35 +10,26 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def load_fallback_text() -> dict:
-    source = (ROOT / "AutoClearME_GUI.py").read_text(encoding="utf-8-sig")
-    module = ast.parse(source)
-    for node in module.body:
-        if not isinstance(node, ast.Assign):
-            continue
-        if any(isinstance(target, ast.Name) and target.id == "FALLBACK_TEXT" for target in node.targets):
-            return ast.literal_eval(node.value)
-    raise RuntimeError("FALLBACK_TEXT was not found.")
-
-
 def main() -> int:
-    fallback = load_fallback_text()
-    languages = json.loads((ROOT / "languages.json").read_text(encoding="utf-8-sig"))["text"]
+    data = json.loads((ROOT / "languages.json").read_text(encoding="utf-8-sig"))
+    languages = data.get("text", {})
     errors = []
-    for code in sorted(set(fallback) | set(languages)):
-        fallback_keys = set(fallback.get(code, {}))
-        language_keys = set(languages.get(code, {}))
-        if missing := sorted(fallback_keys - language_keys):
-            errors.append(f"{code}: missing in languages.json: {missing}")
-        if missing := sorted(language_keys - fallback_keys):
-            errors.append(f"{code}: missing in FALLBACK_TEXT: {missing}")
-        for key in sorted(fallback_keys & language_keys):
-            if fallback[code][key] != languages[code][key]:
-                errors.append(f"{code}.{key}: fallback differs from languages.json")
+    if not isinstance(data.get("labels"), dict) or not data["labels"]:
+        errors.append("labels must be a non-empty object")
+    if not isinstance(languages, dict) or "en" not in languages:
+        errors.append("text.en is required")
+    else:
+        english_keys = set(languages["en"])
+        for code, translations in languages.items():
+            if not isinstance(translations, dict):
+                errors.append(f"text.{code} must be an object")
+                continue
+            if missing := sorted(english_keys - set(translations)):
+                errors.append(f"{code}: missing translations: {missing}")
     if errors:
         print("\n".join(errors))
         return 1
-    print("FALLBACK_TEXT matches languages.json")
+    print("languages.json is valid")
     return 0
 
 
