@@ -2315,16 +2315,16 @@ def cached_firmware_info(args: argparse.Namespace) -> FirmwareInfo | None:
 def prepare_firmware_info(args: argparse.Namespace, image: Path, mea: Path | None) -> FirmwareInfo:
     info = cached_firmware_info(args)
     if info:
-        print(f"[1/5] Using cached ME Analyzer result: {log_path_name(image)}", flush=True)
+        print(f"[1/5] Using cached ME Analyzer result: {log_path_name(image)}...", flush=True)
         return info
-    print(f"[1/5] Analyzing input with ME Analyzer: {log_path_name(image)}", flush=True)
+    print(f"[1/5] Analyzing input with ME Analyzer: {log_path_name(image)}...", flush=True)
     if not mea:
         raise FileNotFoundError("ME Analyzer not found. Pass --mea path/to/MEA.py or MEA.exe.")
     return analyze_with_mea(mea, image)
 
 
 def matching_rgn(args: argparse.Namespace, repo: Path, info: FirmwareInfo) -> tuple[Path, list[dict]]:
-    print(f"[3/5] Searching matching ME Region in: {log_path_name(repo)}", flush=True)
+    print(f"[3/5] Searching matching ME Region in: {log_path_name(repo)}...", flush=True)
     if args.rgn:
         rgn = Path(args.rgn).resolve()
         if not rgn.exists():
@@ -2383,7 +2383,7 @@ def try_fit_build(
         return BuildResult(None, [], [], fitc)
 
     for idx, candidate_fitc in enumerate(fitc_candidates, 1):
-        print(f"[5/5] Trying FIT CLI build ({idx}/{len(fitc_candidates)}): {fitc_label(candidate_fitc)}", flush=True)
+        print(f"[5/5] Trying FIT CLI build ({idx}/{len(fitc_candidates)}): {fitc_label(candidate_fitc)}...", flush=True)
         output_source = prep.source_image or prep.image
         expected_output_size = output_source.stat().st_size
         work_output = clearme_output_name(output_source, workdir)
@@ -2395,7 +2395,7 @@ def try_fit_build(
         built = valid_built_image(built_candidate, expected_output_size)
         failed_fs = fitc_failed_me_file_system(fitc_result)
         if not built and failed_fs:
-            print(f"[5/5] FIT failed to initialize {failed_fs}, manual fix then retry FIT.", flush=True)
+            print(f"[5/5] FIT could not initialize {failed_fs}. Auto repair the ME Region and retrying FIT...", flush=True)
             retry_output = clearme_output_name(output_source, workdir)
             try:
                 repaired_input, me_region = create_me_fs_repaired_input(input_copy, rgn_copy, workdir)
