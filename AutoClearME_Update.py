@@ -21,13 +21,12 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 
-KEEP_FILES = {"config.json"}
+KEEP_FILES = {"config.json", ".venv"}
 REQUIRED_FILES = [
     "Run.bat",
     "AutoClearME.py",
     "AutoClearME_GUI.py",
     "VERSION",
-    str(Path("Runtime") / "Python" / "python.exe"),
     str(Path("MEA") / "MEA.py"),
 ]
 PROGRESS_QUEUE: queue.Queue[tuple[str, object]] | None = None
@@ -126,11 +125,8 @@ def replace_app(payload: Path, app_dir: Path) -> None:
 
 
 def relaunch(app_dir: Path) -> None:
-    gui = app_dir / "AutoClearME_GUI.py"
-    pythonw = app_dir / "Runtime" / "Python" / "pythonw.exe"
-    python = app_dir / "Runtime" / "Python" / "python.exe"
-    executable = pythonw if pythonw.exists() else python
-    if not gui.exists() or not executable.exists():
+    runner = app_dir / "Run.bat"
+    if not runner.exists():
         return
     progress("Restarting Auto Clear ME...")
     startupinfo = None
@@ -141,7 +137,7 @@ def relaunch(app_dir: Path) -> None:
         startupinfo.wShowWindow = 0
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     subprocess.Popen(
-        [str(executable), str(gui)],
+        ["cmd", "/c", str(runner)],
         cwd=str(app_dir),
         startupinfo=startupinfo,
         creationflags=creationflags,

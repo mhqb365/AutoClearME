@@ -4,14 +4,6 @@ cd /d "%~dp0"
 
 echo Packaging portable app to dist...
 
-echo Preparing bundled Python runtime...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0PrepareRuntime.ps1"
-if errorlevel 1 (
-  echo Failed to prepare bundled Python runtime.
-  pause
-  exit /b 1
-)
-
 if exist "dist" rmdir /s /q "dist"
 if exist "dist" (
   echo Failed to remove existing dist folder.
@@ -48,15 +40,8 @@ if errorlevel 1 (
 )
 if exist "dist\MEA\__CHECK__" rmdir /s /q "dist\MEA\__CHECK__"
 
-if exist "dist\Runtime" rmdir /s /q "dist\Runtime"
-xcopy "runtime\Python" "dist\Runtime\Python\" /e /i /y >nul
-if errorlevel 1 (
-  echo Failed to copy bundled Python runtime.
-  pause
-  exit /b 1
-)
-
 echo.
 echo Done: dist\
 echo Users can run dist\Run.bat to start Auto Clear ME.
+echo Python 3.10+ must be installed on the computer; Run.bat will prepare dependencies automatically.
 pause

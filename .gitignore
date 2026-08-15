@@ -4,6 +4,7 @@ MEA/__CHECK__
 
 # Python cache
 __pycache__/
+.venv/
 *.py[cod]
 *$py.class
 

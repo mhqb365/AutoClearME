@@ -39,18 +39,9 @@ Contribute ideas, new ME & FIT versions or report issues at [Laptop Repair Shari
 4. Double-click `Run.bat`
 5. The Auto Clear ME interface will open
 
-The release ZIP already includes:
+The release ZIP already includes the app files, the bundled `MEA` folder, and `requirements.txt`.
 
-- Portable Python embeddable runtime
-- Python packages required by ME Analyzer:
-  - `colorama`
-  - `crccheck`
-  - `pltable`
-- The bundled `MEA` folder
-- `requirements.txt` as a fallback dependency list for manual Python setups
-
-Users do not need to install Python, `pip`, or any Python package manually
-If you choose to run with your own Python instead of the bundled runtime, install the same dependencies with `pip install -r requirements.txt`
+Users must install Python 3.10 or newer from python.org. `Run.bat` will create a local `.venv`, install the required Python packages automatically, then open the app.
 
 ### How To Use
 
