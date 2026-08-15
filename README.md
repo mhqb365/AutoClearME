@@ -25,23 +25,19 @@ The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matc
 
 ME Region and FIT are not distributed with this project. You must prepare them yourself, or download what I have here: [ME Region & FIT](https://drive.google.com/drive/folders/1ocp61oICeFGZuf-J59gpnLO88XGzKvPY?usp=sharing)
 
-Download and extract them, then select the folders in `Settings`
-
 ### Contributing
 
 Contribute ideas, new ME & FIT versions or report issues at [Laptop Repair Sharing](https://t.me/LaptopRepairSharing)
 
 ### Download And Run
 
+You need Python 3.10 or newer to run the app. If you don't have it, download Python from [python.org](https://www.python.org/downloads/)
+
 1. Open the [GitHub Releases](https://github.com/mhqb365/AutoClearME/releases)
 2. Download the ZIP file from the latest release
 3. Extract the ZIP file to any folder
 4. Double-click `Run.bat`
 5. The Auto Clear ME interface will open
-
-The release ZIP already includes the app files, the bundled `MEA` folder, and `requirements.txt`.
-
-Users must install Python 3.10 or newer from python.org. `Run.bat` will create a local `.venv`, install the required Python packages automatically, then open the app.
 
 ### How To Use
 
@@ -115,32 +111,19 @@ App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME R
 
 ME Region và FIT không được phân phối kèm dự án này. Bạn tự chuẩn bị hoặc tải những gì tôi có ở đây: [ME Region & FIT](https://drive.google.com/drive/folders/1ocp61oICeFGZuf-J59gpnLO88XGzKvPY?usp=sharing)
 
-Tải về và giải nén, sau đó chọn thư mục trong `Settings`
-
 ### Đóng góp
 
 Đóng góp ý kiến, đóng góp ME & FIT mới hoặc báo lỗi tại [Laptop Repair Sharing](https://t.me/LaptopRepairSharing)
 
 ### Tải Về Và Chạy App
 
+Bạn cần có Python 3.10 hoặc mới hơn để chạy app. Nếu chưa có, tải Python tại [python.org](https://www.python.org/downloads/)
+
 1. Mở trang [GitHub Releases](https://github.com/mhqb365/AutoClearME/releases)
 2. Tải file ZIP của bản release mới nhất
 3. Giải nén file ZIP ra một thư mục bất kỳ
 4. Nhấp đúp vào `Run.bat`
 5. Giao diện Auto Clear ME sẽ được mở lên
-
-File ZIP release đã bao gồm sẵn:
-
-- Python embeddable portable
-- Các gói Python mà ME Analyzer cần:
-  - `colorama`
-  - `crccheck`
-  - `pltable`
-- Thư mục `MEA` đi kèm
-- File `requirements.txt` để làm danh sách thư viện dự phòng khi chạy bằng Python tự cài
-
-Người dùng không cần cài Python, `pip`, hoặc thư viện Python thủ công
-Nếu muốn chạy bằng Python tự cài thay vì runtime đi kèm, cài thư viện bằng `pip install -r requirements.txt`
 
 ### Cách Dùng
 
