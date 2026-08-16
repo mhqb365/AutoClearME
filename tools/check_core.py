@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, detect_bios_version, display_sku, find_acer_dmi, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, parse_mea_output, score_rgn, sku_matches
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -57,6 +57,26 @@ def main() -> int:
         assert detected_vendor == vendor
         assert detected_version
     assert detect_bios_version(b"Dell Inc.\x00CSME 16.1.38.2676\x00") == ("Dell", "")
+    asus_header = b"$MODIFYSIG$\x003\x00\x00\x00UX425EA\x00\x00\x00\x00\x0016\x00\x0006/10/2022"
+    assert detect_asus_bios_header(asus_header) == ("UX425EA", "316")
+    assert detect_bios_version(asus_header) == ("ASUS", "316")
+    asus_mfg = bytearray(b"\xFF" * 0x104)
+    for offset, value in (
+        (0x00, b"MFG0\x00"),
+        (0x05, b"N1N0LP010226016"),
+        (0x1E, b"90NB0SM1-M006V0"),
+        (0x32, b"MC51NBLP003B0AMB"),
+        (0x55, b"QCCXKP6BD01703586"),
+        (0x69, b"0301A"),
+        (0x85, b"UX425EA"),
+        (0x99, b"2022-01-10 18:31:28"),
+    ):
+        asus_mfg[offset:offset + len(value)] = value
+    asus_items = {(item.label, item.value) for item in find_asus_dmi(bytes(asus_mfg))}
+    assert ("Board Serial Number", "N1N0LP010226016") in asus_items
+    assert ("System Identifier", "QCCXKP6BD01703586") in asus_items
+    assert ("Configuration ID", "0301A") in asus_items
+    assert ("Model Identifier", "UX425EA") in asus_items
     acer_block = bytearray(0x2000)
     acer_block[0x100:0x100 + 57] = b"Acer\x00Aspire A315-58\x00NXHS5AA00123456789ABC\x0012345678901\x00"
     acer_items = {(item.label, item.value) for item in find_acer_dmi(bytes(acer_block))}

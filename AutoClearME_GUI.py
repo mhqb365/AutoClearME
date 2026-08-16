@@ -106,6 +106,8 @@ class ClearMeGui(tk.Tk):
             "input": tk.StringVar(),
             "dual_file1": tk.StringVar(),
             "dual_file2": tk.StringVar(),
+            "asus_dmi_package": tk.StringVar(),
+            "asus_dmi_target": tk.StringVar(),
             "dmi_package": tk.StringVar(),
             "dmi_target": tk.StringVar(),
             "hp_dmi_package": tk.StringVar(),
@@ -181,6 +183,17 @@ class ClearMeGui(tk.Tk):
         self.select_row(dual_tab, 2, "me_region", "rgn_choice")
         self.select_row(dual_tab, 3, "fit", "fit_choice")
         tabs.add(dual_tab, text="")
+
+        asus_dmi_tab = self.build_dmi_import_tab(
+            tabs,
+            "asus_dmi_target",
+            "asus_dmi_package",
+            self.start_import_asus_dmi,
+            self.start_find_asus_dmi,
+        )
+        self.import_asus_dmi_button = asus_dmi_tab.import_button
+        self.asus_dmi_button = asus_dmi_tab.find_button
+        tabs.add(asus_dmi_tab, text="")
 
         acer_dmi_tab = self.build_dmi_import_tab(
             tabs,
@@ -377,19 +390,22 @@ class ClearMeGui(tk.Tk):
         self.ui["bios_files_frame"].configure(text=self.t("bios_files"))
         self.tabs.tab(0, text=self.t("single_bios"))
         self.tabs.tab(1, text=self.t("dual_bios"))
-        self.tabs.tab(2, text=self.t("acer_dmi_tab"))
-        self.tabs.tab(3, text=self.t("dell_dmi_tab"))
-        self.tabs.tab(4, text=self.t("dell_pfs_tab"))
-        self.tabs.tab(5, text=self.t("hp_dmi_tab"))
-        self.tabs.tab(6, text=self.t("lenovo_dmi_tab"))
+        self.tabs.tab(2, text=self.t("asus_dmi_tab"))
+        self.tabs.tab(3, text=self.t("acer_dmi_tab"))
+        self.tabs.tab(4, text=self.t("dell_dmi_tab"))
+        self.tabs.tab(5, text=self.t("dell_pfs_tab"))
+        self.tabs.tab(6, text=self.t("hp_dmi_tab"))
+        self.tabs.tab(7, text=self.t("lenovo_dmi_tab"))
         self.import_dmi_button.configure(text=self.t("import_dmi"))
         self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.import_acer_dmi_button.configure(text=self.t("import_acer_dmi"))
         self.import_dell_dmi_button.configure(text=self.t("import_dell_dmi"))
+        self.import_asus_dmi_button.configure(text=self.t("import_asus_dmi"))
         self.winkey_button.configure(text=self.t("winkey"))
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.unlock_acer_button.configure(text=self.t("unlock_acer"))
         self.unlock_hp_button.configure(text=self.t("unlock_hp"))
+        self.asus_dmi_button.configure(text=self.t("asus_dmi"))
         self.lenovo_dmi_button.configure(text=self.t("lenovo_dmi"))
         self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.acer_dmi_button.configure(text=self.t("acer_dmi"))
@@ -571,7 +587,7 @@ class ClearMeGui(tk.Tk):
     def pick_dmi_package(self, key: str) -> None:
         path = filedialog.askopenfilename(
             title=self.t("dmi_package"),
-            filetypes=[("DMI package", "*.lendmi *.hpdmi *.acerdmi *.delldmi"), ("All files", "*.*")],
+            filetypes=[("DMI package", "*.lendmi *.hpdmi *.acerdmi *.asusdmi *.delldmi"), ("All files", "*.*")],
         )
         if path:
             self.input_paths[key] = path
@@ -710,6 +726,9 @@ class ClearMeGui(tk.Tk):
     def start_find_lenovo_dmi(self) -> None:
         self.start_find_oem_dmi("Lenovo", "lenovo-dmi", "dmi_target", self.lenovo_dmi_button, "LENOVO_DMI_DONE")
 
+    def start_find_asus_dmi(self) -> None:
+        self.start_find_oem_dmi("ASUS", "asus-dmi", "asus_dmi_target", self.asus_dmi_button, "ASUS_DMI_DONE")
+
     def start_find_hp_dmi(self) -> None:
         self.start_find_oem_dmi("HP", "hp-dmi", "hp_dmi_target", self.hp_dmi_button, "HP_DMI_DONE")
 
@@ -739,6 +758,9 @@ class ClearMeGui(tk.Tk):
 
     def start_import_lenovo_dmi(self) -> None:
         self.start_import_dmi("Lenovo", "dmi_package", "dmi_target", self.import_dmi_button)
+
+    def start_import_asus_dmi(self) -> None:
+        self.start_import_dmi("ASUS", "asus_dmi_package", "asus_dmi_target", self.import_asus_dmi_button)
 
     def start_import_hp_dmi(self) -> None:
         self.start_import_dmi("HP", "hp_dmi_package", "hp_dmi_target", self.import_hp_dmi_button)
@@ -772,7 +794,10 @@ class ClearMeGui(tk.Tk):
         if not source:
             return
         vendor = self.last_oem_dmi_vendor or "Lenovo"
-        if vendor == "HP":
+        if vendor == "ASUS":
+            button = self.asus_dmi_button
+            command = "asus-dmi-export"
+        elif vendor == "HP":
             button = self.hp_dmi_button
             command = "hp-dmi-export"
         elif vendor == "Acer":
@@ -928,7 +953,7 @@ class ClearMeGui(tk.Tk):
                 self.last_analyze_result += line
             elif done_tag == "WINKEY_DONE":
                 self.queue.put(line)
-            elif done_tag in {"LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
+            elif done_tag in {"ASUS_DMI_DONE", "LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
                 self.last_dmi_transfer_result += line
                 self.queue.put(line)
             elif done_tag == "DELL_PFS_DONE":
@@ -1010,6 +1035,9 @@ class ClearMeGui(tk.Tk):
         if tag == "LENOVO_DMI_DONE":
             self.handle_oem_dmi_done(code, self.lenovo_dmi_button, "Lenovo")
             return
+        if tag == "ASUS_DMI_DONE":
+            self.handle_oem_dmi_done(code, self.asus_dmi_button, "ASUS")
+            return
         if tag == "HP_DMI_DONE":
             self.handle_oem_dmi_done(code, self.hp_dmi_button, "HP")
             return
@@ -1046,11 +1074,13 @@ class ClearMeGui(tk.Tk):
             self.unlock_asus_button,
             self.unlock_acer_button,
             self.unlock_hp_button,
+            self.asus_dmi_button,
             self.lenovo_dmi_button,
             self.hp_dmi_button,
             self.acer_dmi_button,
             self.dell_dmi_button,
             self.import_dmi_button,
+            self.import_asus_dmi_button,
             self.import_hp_dmi_button,
             self.import_acer_dmi_button,
             self.import_dell_dmi_button,
@@ -1077,6 +1107,7 @@ class ClearMeGui(tk.Tk):
 
     def handle_dmi_export_done(self, code: int) -> None:
         self.lenovo_dmi_button.configure(state="normal")
+        self.asus_dmi_button.configure(state="normal")
         self.hp_dmi_button.configure(state="normal")
         self.acer_dmi_button.configure(state="normal")
         self.dell_dmi_button.configure(state="normal")
@@ -1087,6 +1118,7 @@ class ClearMeGui(tk.Tk):
         if outputs:
             self.status_var.set(self.t("export_complete"))
             package_key = {
+                "ASUS": "asus_dmi_package",
                 "HP": "hp_dmi_package",
                 "Acer": "acer_dmi_package",
                 "Dell": "dell_dmi_package",
@@ -1097,6 +1129,7 @@ class ClearMeGui(tk.Tk):
 
     def handle_dmi_import_done(self, code: int) -> None:
         self.import_dmi_button.configure(state="normal")
+        self.import_asus_dmi_button.configure(state="normal")
         self.import_hp_dmi_button.configure(state="normal")
         self.import_acer_dmi_button.configure(state="normal")
         self.import_dell_dmi_button.configure(state="normal")
@@ -1296,20 +1329,21 @@ class ClearMeGui(tk.Tk):
 
     def first_oem_dmi_source(self) -> str:
         vendor = self.last_oem_dmi_vendor or "Lenovo"
+        result_lower = self.last_dmi_transfer_result.lower()
         for index, source in enumerate(self.last_oem_dmi_files):
             name = Path(source).name
             marker = f"[INFO] Finding {vendor} DMI in {name}"
-            start = self.last_dmi_transfer_result.find(marker)
+            start = result_lower.find(marker.lower())
             if start < 0:
                 continue
             next_start = len(self.last_dmi_transfer_result)
             if index + 1 < len(self.last_oem_dmi_files):
                 next_marker = f"[INFO] Finding {vendor} DMI in {Path(self.last_oem_dmi_files[index + 1]).name}"
-                found = self.last_dmi_transfer_result.find(next_marker, start + len(marker))
+                found = result_lower.find(next_marker.lower(), start + len(marker))
                 if found >= 0:
                     next_start = found
-            section = self.last_dmi_transfer_result[start:next_start]
-            if f"No {vendor} DMI found" not in section:
+            section = result_lower[start:next_start]
+            if f"No {vendor} DMI found".lower() not in section:
                 return source
         return ""
 
@@ -1318,6 +1352,8 @@ class ClearMeGui(tk.Tk):
         source_dirs = [
             self.input_path("dmi_target"),
             self.input_path("dmi_package"),
+            self.input_path("asus_dmi_target"),
+            self.input_path("asus_dmi_package"),
             self.input_path("hp_dmi_target"),
             self.input_path("hp_dmi_package"),
             self.input_path("acer_dmi_target"),

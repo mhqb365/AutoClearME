@@ -1094,8 +1094,15 @@ def export_hp_dmi(source: Path) -> tuple[Path, int]:
 
 def load_dmi_package(path: Path) -> tuple[str, list[bytes], list[dict]]:
     payload = json.loads(path.read_text(encoding="utf-8"))
-    package_format = payload.get("format")
-    if package_format not in {"AutoClearME Lenovo DMI", "AutoClearME HP DMI", "AutoClearME Acer DMI", "AutoClearME Dell DMI"}:
+    package_format = str(payload.get("format") or "")
+    valid_formats = {
+        "autoclearme lenovo dmi",
+        "autoclearme hp dmi",
+        "autoclearme acer dmi",
+        "autoclearme asus dmi",
+        "autoclearme dell dmi",
+    }
+    if package_format.lower() not in valid_formats:
         raise RuntimeError("Invalid DMI package.")
     blocks = payload.get("blocks")
     if not isinstance(blocks, list) or not blocks:
@@ -1108,7 +1115,7 @@ def load_dmi_package(path: Path) -> tuple[str, list[bytes], list[dict]]:
 
 def dmi_block_markers(block: bytes) -> tuple[bytes, ...]:
     markers = []
-    for marker in (HP_LEGACY_DMI_MARKER, HP_INSYDE_DMI_MARKER, HP_MUD_MARKER, b"HP ", b"LENV", b"Acer", DELL_DMI_MARKER):
+    for marker in (HP_LEGACY_DMI_MARKER, HP_INSYDE_DMI_MARKER, HP_MUD_MARKER, b"HP ", b"LENV", b"Acer", b"MFG0\x00", DELL_DMI_MARKER):
         if marker in block:
             markers.append(marker)
     return tuple(markers)
@@ -1168,6 +1175,9 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
     if kind_lower == "hp":
         target_blocks = hp_dmi_blocks(data)
         output_name = hp_dmi_import_output_name(target)
+    elif kind_lower == "asus":
+        target_blocks = asus_dmi_blocks(data)
+        output_name = asus_dmi_import_output_name(target)
     elif kind_lower == "acer":
         target_blocks = acer_dmi_blocks(data)
         output_name = acer_dmi_import_output_name(target)
@@ -1177,6 +1187,15 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
     else:
         target_blocks = lenovo_dmi_blocks(data)
         output_name = lenovo_dmi_import_output_name(target)
+    if kind_lower == "asus":
+        if not target_blocks:
+            raise RuntimeError("Target BIOS does not contain any matching ASUS DMI block.")
+        source_block = max(blocks, key=lambda block: (len(asus_mfg_fields(block)), sum(map(len, asus_mfg_fields(block).values()))))
+        for offset, _target_block in target_blocks:
+            for _label, start, end in ASUS_MFG_SLOTS:
+                data[offset + start:offset + end] = source_block[start:end]
+        output_name.write_bytes(data)
+        return output_name, len(target_blocks), kind
     block_pairs = match_dmi_import_blocks(kind, blocks, block_meta, target_blocks)
     for block, offset, target_block in block_pairs:
         if len(block) != len(target_block):
@@ -1358,7 +1377,27 @@ def clean_bios_version_candidate(value: str) -> str:
     return value.strip(" \t\r\n\x00:;,-_[]{}")
 
 
+def detect_asus_bios_header(buffer: bytes) -> tuple[str, str]:
+    date_pattern = re.compile(rb"\d{2}/\d{2}/\d{4}")
+    model_pattern = re.compile(rb"[A-Z]{1,4}\d{3,4}[A-Z]{0,3}")
+    for date_match in date_pattern.finditer(buffer):
+        start = max(0, date_match.start() - 128)
+        prefix = buffer[start:date_match.start()]
+        if b"ASUS" not in prefix and b"$MODIFYSIG$" not in prefix:
+            continue
+        models = [match.group().decode("ascii") for match in model_pattern.finditer(prefix)]
+        parts = [match.group().decode("ascii") for match in re.finditer(rb"(?<!\d)\d{1,2}(?=\x00)", prefix)]
+        for index in range(len(parts) - 1):
+            version = parts[index] + parts[index + 1]
+            if len(version) == 3 and version.isdigit():
+                return (models[-1] if models else ""), version
+    return "", ""
+
+
 def detect_bios_version(buffer: bytes) -> tuple[str, str]:
+    _asus_model, asus_version = detect_asus_bios_header(buffer)
+    if asus_version:
+        return "ASUS", asus_version
     strings = firmware_text_strings(buffer)
     vendor = bios_vendor_from_strings(strings)
     if not vendor:
@@ -1385,6 +1424,91 @@ def detect_bios_version(buffer: bytes) -> tuple[str, str]:
             if match:
                 return vendor, match.group(0)
     return vendor, ""
+
+
+ASUS_MFG_MARKER = b"MFG0\x00"
+ASUS_DMI_RECORD_SIZE = 0x104
+ASUS_MODEL_PATTERN = re.compile(r"^(?:[A-Z]{1,4}\d{3,4}[A-Z]{0,3})(?:[.-][A-Z0-9]+)?$", re.IGNORECASE)
+ASUS_MFG_SLOTS = (
+    ("Board Serial Number", 0x05, 0x1E),
+    ("Board Part Number", 0x1E, 0x32),
+    ("Board ID", 0x32, 0x55),
+    ("System Identifier", 0x55, 0x69),
+    ("Configuration ID", 0x69, 0x73),
+    ("Configuration Code 1", 0x73, 0x77),
+    ("Configuration Code 2", 0x77, 0x85),
+    ("Model Identifier", 0x85, 0x99),
+    ("Manufacture Date", 0x99, ASUS_DMI_RECORD_SIZE),
+)
+
+
+def asus_mfg_values(buffer: bytes) -> list[list[str]]:
+    records = []
+    for offset in find_all_bytes(buffer, ASUS_MFG_MARKER):
+        end = buffer.find(b"NVAR", offset + len(ASUS_MFG_MARKER), offset + 0x300)
+        payload = buffer[offset + len(ASUS_MFG_MARKER):end if end >= 0 else offset + 0x180]
+        values = []
+        for chunk in re.split(rb"\xFF+", payload):
+            for match in re.finditer(rb"[ -~]{2,64}", chunk):
+                value = match.group().decode("ascii", errors="ignore").strip(" \x00")
+                if value and value not in {"MFG0", "GPNV", "CNFG"}:
+                    values.append(value)
+        if values and values not in records:
+            records.append(values)
+    return records
+
+
+def asus_mfg_fields(block: bytes) -> dict[str, str]:
+    fields = {}
+    for label, start, end in ASUS_MFG_SLOTS:
+        raw = block[start:end].split(b"\x00", 1)[0].split(b"\xFF", 1)[0]
+        value = raw.decode("ascii", errors="ignore").strip()
+        if value:
+            fields[label] = value
+    return fields
+
+
+def find_asus_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    blocks = asus_dmi_blocks(buffer)
+    if not blocks:
+        return []
+    fields = max((asus_mfg_fields(block) for _offset, block in blocks), key=lambda item: (len(item), sum(map(len, item.values()))))
+    return [LenovoDmiItem(label, fields[label]) for label, _start, _end in ASUS_MFG_SLOTS if label in fields]
+
+
+def asus_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = []
+    for offset in find_all_bytes(buffer, ASUS_MFG_MARKER):
+        block = buffer[offset:offset + ASUS_DMI_RECORD_SIZE]
+        if len(block) != ASUS_DMI_RECORD_SIZE:
+            continue
+        fields = asus_mfg_fields(block)
+        if not fields.get("Board Part Number", "").upper().startswith("90N"):
+            continue
+        identifier = fields.get("Model Identifier", "")
+        if not ASUS_MODEL_PATTERN.fullmatch(identifier):
+            continue
+        blocks.append((offset, block))
+    return blocks
+
+
+def asus_dmi_export_name(source: Path) -> Path:
+    return unique_output_path(source.with_name(f"{source.stem}_ASUS_DMI.asusdmi"))
+
+
+def asus_dmi_import_output_name(target: Path) -> Path:
+    suffix = target.suffix or ".bin"
+    return unique_output_path(target.with_name(f"{target.stem}_ASUS_DMI{suffix}"))
+
+
+def export_asus_dmi(source: Path) -> tuple[Path, int]:
+    blocks = asus_dmi_blocks(source.read_bytes())
+    if not blocks:
+        raise RuntimeError("Asus DMI block was not found.")
+    payload = dmi_package_payload("ASUS", blocks)
+    output = asus_dmi_export_name(source)
+    output.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return output, len(blocks)
 
 
 def add_unique_dmi_item(items: list[LenovoDmiItem], seen: set[tuple[str, str]], label: str, value: str) -> None:
@@ -2735,6 +2859,39 @@ def command_lenovo_dmi(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 2
 
 
+def command_asus_dmi(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Finding Asus DMI in {log_path_name(path)}...", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            items = find_asus_dmi(path.read_bytes())
+            if not items:
+                print("  No Asus DMI found", flush=True)
+                continue
+            for item in items:
+                print(f"  {item.label}: {item.value}", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Find Asus DMI failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
+def command_asus_dmi_export(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    print(f"[INFO] Export Asus DMI from {log_path_name(path)}...", flush=True)
+    if not path.exists():
+        raise RuntimeError(f"File does not exist: {log_path_name(path)}")
+    output, count = export_asus_dmi(path)
+    print(f"  Blocks: {count}", flush=True)
+    print(f"  Output: {log_path_name(output)}", flush=True)
+    return 0
+
+
 def command_lenovo_dmi_export(args: argparse.Namespace) -> int:
     path = Path(args.input).resolve()
     print(f"[INFO] Export Lenovo DMI from {log_path_name(path)}", flush=True)
@@ -3009,6 +3166,14 @@ def build_parser() -> argparse.ArgumentParser:
     lenovo_dmi = sub.add_parser("lenovo-dmi", help="Find Lenovo DMI data in BIOS dump(s).")
     lenovo_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
     lenovo_dmi.set_defaults(func=command_lenovo_dmi)
+
+    asus_dmi = sub.add_parser("asus-dmi", help="Find ASUS manufacturing DMI data in BIOS dump(s).")
+    asus_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
+    asus_dmi.set_defaults(func=command_asus_dmi)
+
+    asus_export = sub.add_parser("asus-dmi-export", help="Export Asus DMI blocks to a .asusdmi package.")
+    asus_export.add_argument("--input", required=True, help="Source BIOS dump.")
+    asus_export.set_defaults(func=command_asus_dmi_export)
 
     lenovo_export = sub.add_parser("lenovo-dmi-export", help="Export Lenovo DMI blocks to a .lendmi package.")
     lenovo_export.add_argument("--input", required=True, help="Source BIOS dump.")
