@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, display_sku, find_acer_dmi, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, detect_bios_version, display_sku, find_acer_dmi, parse_mea_output, score_rgn, sku_matches
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -45,6 +45,18 @@ def main() -> int:
     assert version_parts("v1.0.8.1") == (1, 0, 8, 1)
     assert format_version("v1.01") == "1.0.1"
     assert format_version("v1.0.8.1") == "1.0.8.1"
+    bios_samples = {
+        "Dell": b"Dell Inc.\x00BIOS Version\x001.32.0\x00CSME 16.1.38.2676\x00",
+        "Lenovo": b"LENOVO\x00ThinkPad\x00N3HET76W (1.48 )\x00",
+        "HP": b"Hewlett-Packard\x00BIOS Version\x00S70 Ver. 01.17.00\x00",
+        "Acer": b"Acer Incorporated\x00BIOS Version\x00V1.28\x00",
+        "ASUS": b"ASUSTeK COMPUTER INC.\x00BIOS Version\x00310\x00",
+    }
+    for vendor, sample in bios_samples.items():
+        detected_vendor, detected_version = detect_bios_version(sample)
+        assert detected_vendor == vendor
+        assert detected_version
+    assert detect_bios_version(b"Dell Inc.\x00CSME 16.1.38.2676\x00") == ("Dell", "")
     acer_block = bytearray(0x2000)
     acer_block[0x100:0x100 + 57] = b"Acer\x00Aspire A315-58\x00NXHS5AA00123456789ABC\x0012345678901\x00"
     acer_items = {(item.label, item.value) for item in find_acer_dmi(bytes(acer_block))}

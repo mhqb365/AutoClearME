@@ -77,6 +77,8 @@ class FirmwareInfo:
     chipset: str = ""
     fit: str = ""
     data_state: str = ""
+    bios_vendor: str = ""
+    bios_version: str = ""
     raw: str = ""
 
 
@@ -1315,6 +1317,74 @@ def utf16le_strings_with_offsets(buffer: bytes, base_offset: int = 0) -> list[tu
     if start is not None and len(chars) >= 3:
         values.append((start, "".join(chars)))
     return values
+
+
+BIOS_VERSION_PATTERNS = {
+    "Dell": re.compile(r"(?:A\d{2}|\d{1,2}\.\d{1,2}\.\d{1,3})", re.IGNORECASE),
+    "Lenovo": re.compile(r"[A-Z0-9]{3,5}ET\d{2}W(?:\s*\([^)]+\))?", re.IGNORECASE),
+    "HP": re.compile(r"(?:[A-Z0-9]{1,4}\s+Ver\.\s+[A-Z0-9.]+|F\.\d{2}(?:\.\d{2})?)", re.IGNORECASE),
+    "Acer": re.compile(r"V\d+\.\d+(?:\.\d+)?", re.IGNORECASE),
+    "ASUS": re.compile(r"(?:[A-Z][A-Z0-9-]{2,20}(?:AS)?\.)?\d{3,4}", re.IGNORECASE),
+}
+
+
+def firmware_text_strings(buffer: bytes) -> list[tuple[int, str]]:
+    strings = [
+        (match.start(), match.group().decode("ascii", errors="ignore"))
+        for match in re.finditer(rb"[ -~]{3,128}", buffer)
+    ]
+    strings.extend(utf16le_strings_with_offsets(buffer))
+    strings.extend(utf16le_strings_with_offsets(buffer[1:], 1))
+    return sorted(set(strings), key=lambda item: item[0])
+
+
+def bios_vendor_from_strings(strings: list[tuple[int, str]]) -> str:
+    text = "\n".join(value.lower() for _offset, value in strings)
+    markers = (
+        ("Dell", ("dell inc", "dell computer", "optiplex", "latitude", "vostro", "inspiron")),
+        ("Lenovo", ("lenovo", "thinkpad", "thinkcentre")),
+        ("HP", ("hewlett-packard", "hewlett packard", "elitebook", "probook", "zbook")),
+        ("Acer", ("acer incorporated", "acer inc", "aspire", "travelmate")),
+        ("ASUS", ("asustek", "asus computer")),
+    )
+    for vendor, values in markers:
+        if any(marker in text for marker in values):
+            return vendor
+    return ""
+
+
+def clean_bios_version_candidate(value: str) -> str:
+    value = re.sub(r"(?i)^.*?bios\s*(?:version|revision|id)\s*[:=\-]?\s*", "", value).strip()
+    return value.strip(" \t\r\n\x00:;,-_[]{}")
+
+
+def detect_bios_version(buffer: bytes) -> tuple[str, str]:
+    strings = firmware_text_strings(buffer)
+    vendor = bios_vendor_from_strings(strings)
+    if not vendor:
+        return "", ""
+    pattern = BIOS_VERSION_PATTERNS[vendor]
+
+    for index, (offset, value) in enumerate(strings):
+        if not re.search(r"(?i)\bbios\s*(?:version|revision|id)\b", value):
+            continue
+        candidates = [clean_bios_version_candidate(value)]
+        candidates.extend(
+            candidate
+            for next_offset, candidate in strings[index + 1:index + 7]
+            if next_offset - offset <= 512
+        )
+        for candidate in candidates:
+            match = pattern.fullmatch(candidate.strip())
+            if match:
+                return vendor, match.group(0)
+
+    if vendor in {"Lenovo", "HP"}:
+        for _offset, value in strings:
+            match = pattern.fullmatch(value.strip())
+            if match:
+                return vendor, match.group(0)
+    return vendor, ""
 
 
 def add_unique_dmi_item(items: list[LenovoDmiItem], seen: set[tuple[str, str]], label: str, value: str) -> None:
@@ -2564,7 +2634,9 @@ def command_analyze(args: argparse.Namespace) -> int:
             )
         if info.major < 11 or info.major > 20:
             raise RuntimeError(f"Input CSME major version must be 11-20, got: {info.version}")
+        info.bios_vendor, info.bios_version = detect_bios_version(image.read_bytes())
         print(f"[ANALYZE] Version: {info.version or 'unknown'}", flush=True)
+        print(f"[ANALYZE] BIOS Version: {info.bios_version or 'not detected'}", flush=True)
         print(f"[ANALYZE] SKU: {display_sku(info.sku) or 'unknown'}", flush=True)
         type_label = info.type or "unknown"
         if info.data_state:

@@ -1186,8 +1186,12 @@ class ClearMeGui(tk.Tk):
         family = detected.get("family") or "unknown"
         chipset = detected.get("chipset") or "unknown"
         fit = detected.get("fit") or "unknown"
+        bios_vendor = detected.get("bios_vendor") or "unknown"
+        bios_version = detected.get("bios_version") or "Not detected"
         summary = "\n".join([
             self.t("analyze_success"),
+            f"  BIOS Vendor: {bios_vendor}",
+            f"  BIOS Version: {bios_version}",
             f"  Version: {version}",
             f"  Type: {firmware_type}",
             f"  SKU: {sku}",
