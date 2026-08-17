@@ -205,6 +205,7 @@ class ClearMeGui(tk.Tk):
         self.import_acer_dmi_button = acer_dmi_tab.import_button
         self.acer_dmi_button = acer_dmi_tab.find_button
         tabs.add(acer_dmi_tab, text="")
+        tabs.insert(2, acer_dmi_tab)
 
         dell_dmi_tab = self.build_dmi_import_tab(
             tabs,
@@ -390,8 +391,8 @@ class ClearMeGui(tk.Tk):
         self.ui["bios_files_frame"].configure(text=self.t("bios_files"))
         self.tabs.tab(0, text=self.t("single_bios"))
         self.tabs.tab(1, text=self.t("dual_bios"))
-        self.tabs.tab(2, text=self.t("asus_dmi_tab"))
-        self.tabs.tab(3, text=self.t("acer_dmi_tab"))
+        self.tabs.tab(2, text=self.t("acer_dmi_tab"))
+        self.tabs.tab(3, text=self.t("asus_dmi_tab"))
         self.tabs.tab(4, text=self.t("dell_dmi_tab"))
         self.tabs.tab(5, text=self.t("dell_pfs_tab"))
         self.tabs.tab(6, text=self.t("hp_dmi_tab"))
@@ -1225,13 +1226,25 @@ class ClearMeGui(tk.Tk):
             self.t("analyze_success"),
             f"  BIOS Vendor: {bios_vendor}",
             f"  BIOS Version: {bios_version}",
+            f"  Family: {family}",
             f"  Version: {version}",
+            *([f"  Release: {detected['release']}"] if detected.get("release") else []),
             f"  Type: {firmware_type}",
             f"  SKU: {sku}",
-            f"  Family: {family}",
             f"  Chipset: {chipset}",
+            *([f"  Chipset Support: {detected['chipset_support']}"] if detected.get("chipset_support") else []),
+            *([f"  TCB SVN: {detected['tcb_svn']}"] if detected.get("tcb_svn") else []),
+            *([f"  VCN: {detected['vcn']}"] if detected.get("vcn") else []),
+            *([f"  Production Ready: {detected['production_ready']}"] if detected.get("production_ready") else []),
+            *([f"  Workstation Support: {detected['workstation_support']}"] if detected.get("workstation_support") else []),
+            *([f"  OEM Configuration: {detected['oem_configuration']}"] if detected.get("oem_configuration") else []),
+            *([f"  Date: {detected['date']}"] if detected.get("date") else []),
+            *([f"  Size: {detected['size']}"] if detected.get("size") else []),
             f"  FIT: {fit}",
             f"  File System: {data_state}",
+            *([f"  MEA Database Name: {detected['mea_database_name']}"] if detected.get("mea_database_name") else []),
+            *([f"  MEA Support Status: {detected['mea_support_status']}"] if detected.get("mea_support_status") else []),
+            *([f"  RSA Signature Hash: {detected['rsa_signature_hash']}"] if detected.get("rsa_signature_hash") else []),
         ])
         self.status_var.set(self.t("analyze_success"))
         self.set_candidates(payload.get("rgn_candidates", []), payload.get("fitc_candidates", []))

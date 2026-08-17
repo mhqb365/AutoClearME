@@ -21,6 +21,18 @@ SKU: Consumer LP
 Chipset: TGP-LP B
 FIT: 15.0.10.1432
 File System: Initialized
+Release: Production
+TCB Security Version Number: 3
+Version Control Number: 331
+Production Ready: Yes
+Workstation Support: No
+OEM Configuration: No
+Date: 2022-03-21
+Size: 0x630000
+Chipset Support: ADP-LP
+MEA Database Name: 15.0.35.1898_COR_H
+MEA Support Status: Yes
+RSA Signature Hash: 0123456789ABCDEF
 """
 
 
@@ -34,6 +46,18 @@ def main() -> int:
     assert info.chipset == "TGP-LP B"
     assert info.fit == "15.0.10.1432"
     assert info.data_state == "Initialized"
+    assert info.release == "Production"
+    assert info.tcb_svn == "3"
+    assert info.vcn == "331"
+    assert info.production_ready == "Yes"
+    assert info.workstation_support == "No"
+    assert info.oem_configuration == "No"
+    assert info.date == "2022-03-21"
+    assert info.size == "6.19 MB"
+    assert info.chipset_support == "ADP-LP"
+    assert info.mea_database_name == "15.0.35.1898_COR_H"
+    assert info.mea_support_status == "Yes"
+    assert info.rsa_signature_hash == "0123456789ABCDEF"
     assert display_sku("consumer lp") == "Consumer LP"
     assert sku_matches("Consumer LP", "CON_LP")
     input_info = FirmwareInfo(version="14.1.70.2228", major=14, minor=1, sku="corporate h")

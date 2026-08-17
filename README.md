@@ -49,6 +49,34 @@ You need Python 3.10 or newer to run the app. If you don't have it, download Pyt
 6. Review or change the suggested `ME Region` and `FIT`
 7. Click `Clear ME`
 
+### MEA Log Field Meanings
+
+- `BIOS Vendor`: The BIOS or motherboard manufacturer, such as ASUS, Dell, or HP
+- `BIOS Version`: The system BIOS version
+- `Family`: The Intel management firmware family. `CSE ME` means Intel Converged Security and Management Engine
+- `Version`: The ME firmware version stored in the BIOS
+- `Release`: The release state. `Production` is an official release; `Pre-Production` is generally a test build
+- `Type`: The firmware type. `Extracted` is usually an ME region extracted from a machine BIOS; `Region` is clean firmware used as a source
+- `SKU`: The firmware feature variant. For example, `Consumer LP` targets consumer low-power platforms
+- `Chipset`: The chipset and stepping for which the firmware is configured
+- `Chipset Support`: The chipset family supported by the firmware. For example, `CNP` means Cannon Point
+- `TCB SVN`: The Trusted Computing Base security version used to prevent downgrade to firmware with a lower security level
+- `VCN`: Version Control Number, used to control firmware compatibility and downgrade behavior
+- `Production Ready`: Whether the firmware is marked as ready for use on production systems
+- `Workstation Support`: Whether workstation-specific configuration or features are enabled
+- `OEM Configuration`: Whether the firmware contains configuration specific to the system manufacturer
+- `Date`: The date on which the ME firmware was built or released
+- `Size`: The ME firmware region size converted to MB. For example, `2.49 MB`
+- `FIT`: The Flash Image Tool version used to build or configure the firmware
+- `File System`: The state of the internal ME file system
+  - `Initialized`: Initialized but not fully configured for the system
+  - `Configured`: Configuration has been completed
+  - `Unconfigured`: Configuration has not been completed
+  - `Corrupted`: The internal data may be damaged
+- `MEA Database Name`: The matching firmware name in the ME Analyzer database
+- `MEA Support Status`: Whether the current ME Analyzer version recognizes and supports the firmware
+- `RSA Signature Hash`: The RSA signature hash used to verify firmware integrity and origin
+
 Single BIOS output:
 
 ```text
@@ -134,6 +162,34 @@ Bạn cần có Python 3.10 hoặc mới hơn để chạy app. Nếu chưa có,
 5. Chờ đến khi hiện `Analyze success`
 6. Kiểm tra hoặc chọn lại `ME Region` và `FIT` được đề xuất
 7. Bấm `Clear ME`
+
+### Ý Nghĩa MEA Log
+
+- `BIOS Vendor`: Hãng sản xuất BIOS hoặc bo mạch, ví dụ ASUS, Dell hoặc HP
+- `BIOS Version`: Phiên bản BIOS hệ thống
+- `Family`: Dòng firmware quản lý của Intel. `CSE ME` là Intel Converged Security and Management Engine
+- `Version`: Phiên bản firmware ME đang nằm trong BIOS
+- `Release`: Trạng thái phát hành. `Production` là bản chính thức; `Pre-Production` thường là bản thử nghiệm
+- `Type`: Kiểu firmware. `Extracted` thường là vùng ME trích từ BIOS máy; `Region` là firmware sạch dùng làm nguồn
+- `SKU`: Biến thể và nhóm tính năng. Ví dụ `Consumer LP` là bản dành cho máy tiêu dùng trên nền tảng tiết kiệm điện
+- `Chipset`: Chipset và stepping mà firmware đang được cấu hình để sử dụng
+- `Chipset Support`: Họ chipset được firmware hỗ trợ, ví dụ `CNP` là Cannon Point
+- `TCB SVN`: Mức phiên bản bảo mật của Trusted Computing Base, được dùng để kiểm soát việc hạ cấp xuống firmware có mức bảo mật thấp hơn
+- `VCN`: Version Control Number, số kiểm soát khả năng tương thích và hạ cấp firmware
+- `Production Ready`: Cho biết firmware đã được đánh dấu sẵn sàng sử dụng trên máy thương mại hay chưa
+- `Workstation Support`: Cho biết firmware có bật cấu hình hoặc tính năng dành cho máy trạm hay không
+- `OEM Configuration`: Cho biết firmware có chứa cấu hình riêng của hãng sản xuất máy hay không
+- `Date`: Ngày firmware ME được tạo hoặc phát hành
+- `Size`: Kích thước vùng firmware ME được quy đổi sang MB. Ví dụ `2.49 MB`
+- `FIT`: Phiên bản Flash Image Tool đã dùng để tạo hoặc cấu hình firmware
+- `File System`: Trạng thái hệ thống tệp nội bộ của ME
+  - `Initialized`: Đã khởi tạo nhưng chưa hoàn tất cấu hình cho máy
+  - `Configured`: Đã được cấu hình
+  - `Unconfigured`: Chưa được cấu hình
+  - `Corrupted`: Có dấu hiệu hỏng dữ liệu
+- `MEA Database Name`: Tên firmware tương ứng trong cơ sở dữ liệu của ME Analyzer
+- `MEA Support Status`: Cho biết bản ME Analyzer hiện tại có nhận diện và hỗ trợ firmware này hay không
+- `RSA Signature Hash`: Hash của chữ ký RSA dùng để xác minh tính toàn vẹn và nguồn gốc firmware
 
 Kết quả Single BIOS:
 

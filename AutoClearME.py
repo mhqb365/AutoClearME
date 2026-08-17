@@ -77,6 +77,18 @@ class FirmwareInfo:
     chipset: str = ""
     fit: str = ""
     data_state: str = ""
+    release: str = ""
+    tcb_svn: str = ""
+    vcn: str = ""
+    production_ready: str = ""
+    workstation_support: str = ""
+    oem_configuration: str = ""
+    date: str = ""
+    size: str = ""
+    chipset_support: str = ""
+    mea_database_name: str = ""
+    mea_support_status: str = ""
+    rsa_signature_hash: str = ""
     bios_vendor: str = ""
     bios_version: str = ""
     raw: str = ""
@@ -191,6 +203,14 @@ def ensure_mea_dependencies() -> None:
         )
 
 
+def format_mea_size(value: str) -> str:
+    try:
+        size_bytes = int(value.strip(), 0)
+    except ValueError:
+        return value
+    return f"{size_bytes / (1024 * 1024):.2f} MB"
+
+
 def parse_mea_output(text: str) -> FirmwareInfo:
     info = FirmwareInfo(raw=text)
     for line in text.splitlines():
@@ -218,6 +238,30 @@ def parse_mea_output(text: str) -> FirmwareInfo:
                 info.fit = value
             elif key in {"file system", "file system state", "data state"} and not info.data_state:
                 info.data_state = value
+            elif key == "release" and not info.release:
+                info.release = value
+            elif key in {"tcb svn", "tcb s.v.n", "tcb security version number"} and not info.tcb_svn:
+                info.tcb_svn = value
+            elif key in {"vcn", "v.c.n", "version control number"} and not info.vcn:
+                info.vcn = value
+            elif key in {"production ready", "prod. ready"} and not info.production_ready:
+                info.production_ready = value
+            elif key in {"workstation", "workstation support"} and not info.workstation_support:
+                info.workstation_support = value
+            elif key in {"oem config", "oem configurable", "oem configuration"} and not info.oem_configuration:
+                info.oem_configuration = value
+            elif key == "date" and not info.date:
+                info.date = value
+            elif key == "size" and not info.size:
+                info.size = format_mea_size(value)
+            elif key in {"chipset support", "platform"} and not info.chipset_support:
+                info.chipset_support = value
+            elif key == "mea database name" and not info.mea_database_name:
+                info.mea_database_name = value
+            elif key == "mea support status" and not info.mea_support_status:
+                info.mea_support_status = value
+            elif key == "rsa signature hash" and not info.rsa_signature_hash:
+                info.rsa_signature_hash = value
         lower = clean.lower()
         if "version" in lower and not info.version:
             m = VERSION_RE.search(clean)
