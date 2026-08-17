@@ -506,7 +506,7 @@ class ClearMeGui(tk.Tk):
         if not messagebox.askyesno(self.t("update_available_title"), message, parent=self):
             return
         self.log_info(self.t("update_starting"))
-        self.start_update(url)
+        self.start_update(url, version)
 
     def format_changelog(self, value: object) -> str:
         lines = [line.strip() for line in str(value or "").replace("\r\n", "\n").splitlines()]
@@ -518,7 +518,7 @@ class ClearMeGui(tk.Tk):
             return text[:1200].rstrip() + "\n..."
         return text
 
-    def start_update(self, url: str) -> None:
+    def start_update(self, url: str, version: str) -> None:
         if not UPDATE_SCRIPT_PATH.exists():
             self.log_error("Updater script was not found.")
             return
@@ -531,6 +531,8 @@ class ClearMeGui(tk.Tk):
             str(update_script),
             "--url",
             url,
+            "--expected-version",
+            version,
             "--app-dir",
             str(APP_DIR),
             "--parent-pid",

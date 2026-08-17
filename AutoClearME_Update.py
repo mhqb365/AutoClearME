@@ -84,19 +84,38 @@ def download(url: str, target: Path) -> None:
     ) from last_error
 
 
-def find_payload_root(extract_dir: Path) -> Path:
+def normalized_version(value: str) -> str:
+    return value.strip().lstrip("vV")
+
+
+def payload_version(payload: Path) -> str:
+    version_file = payload / "VERSION"
+    return normalized_version(version_file.read_text(encoding="utf-8")) if version_file.exists() else ""
+
+
+def find_payload_root(extract_dir: Path, expected_version: str = "") -> Path:
     candidates = [p for p in extract_dir.rglob("Run.bat") if p.is_file()]
     if not candidates:
         raise RuntimeError("Run.bat was not found in the release ZIP.")
+    expected = normalized_version(expected_version)
+    if expected:
+        matching = [candidate for candidate in candidates if payload_version(candidate.parent) == expected]
+        if not matching:
+            raise RuntimeError(f"Release ZIP does not contain the expected version {expected}.")
+        candidates = matching
     candidates.sort(key=lambda p: len(p.parts))
     return candidates[0].parent
 
 
-def validate_payload(payload: Path) -> None:
+def validate_payload(payload: Path, expected_version: str = "") -> None:
     progress("Validating package...")
     missing = [name for name in REQUIRED_FILES if not (payload / name).exists()]
     if missing:
         raise RuntimeError("Release ZIP is missing required files: " + ", ".join(missing))
+    expected = normalized_version(expected_version)
+    actual = payload_version(payload)
+    if expected and actual != expected:
+        raise RuntimeError(f"Release version mismatch: expected {expected}, package contains {actual or 'unknown'}.")
 
 
 def replace_app(payload: Path, app_dir: Path) -> None:
@@ -158,9 +177,18 @@ def run_update(args: argparse.Namespace) -> int:
         progress("Extracting package...")
         with zipfile.ZipFile(archive) as zf:
             zf.extractall(extract_dir)
-        payload = find_payload_root(extract_dir)
-        validate_payload(payload)
+        payload = find_payload_root(extract_dir, args.expected_version)
+        validate_payload(payload, args.expected_version)
+        progress(f"Installing Auto Clear ME {payload_version(payload)}...")
         replace_app(payload, app_dir)
+
+    installed_version = payload_version(app_dir)
+    expected_version = normalized_version(args.expected_version)
+    if expected_version and installed_version != expected_version:
+        raise RuntimeError(
+            f"Update verification failed: expected {expected_version}, installed {installed_version or 'unknown'}."
+        )
+    progress(f"Update verified: Auto Clear ME {installed_version} in {app_dir}")
 
     try:
         relaunch(app_dir)
@@ -240,6 +268,7 @@ def run_update_with_window(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Apply an Auto Clear ME portable update.")
     parser.add_argument("--url", required=True)
+    parser.add_argument("--expected-version", default="")
     parser.add_argument("--app-dir", required=True)
     parser.add_argument("--parent-pid", type=int, default=0)
     parser.add_argument("--no-gui", action="store_true", help=argparse.SUPPRESS)
