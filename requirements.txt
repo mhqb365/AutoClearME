@@ -2,3 +2,4 @@ colorama
 crccheck
 pltable
 biosutilities
+tkinterdnd2

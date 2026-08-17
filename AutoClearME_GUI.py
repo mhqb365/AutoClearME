@@ -20,6 +20,13 @@ import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    DND_ROOT = TkinterDnD.Tk
+except ImportError:
+    DND_FILES = None
+    DND_ROOT = tk.Tk
+
 
 APP_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = APP_DIR / "config.json"
@@ -74,7 +81,7 @@ TEXT, LANG_LABELS = load_language_bundle()
 LANG_NAMES = {value: key for key, value in LANG_LABELS.items()}
 
 
-class ClearMeGui(tk.Tk):
+class ClearMeGui(DND_ROOT):
     def __init__(self) -> None:
         super().__init__()
         self.title(f"Auto Clear ME v{app_version()}")
@@ -304,7 +311,9 @@ class ClearMeGui(tk.Tk):
         label = ttk.Label(parent)
         label.grid(row=row, column=0, sticky="w", pady=4)
         self.translatable_labels.append((label, label_key))
-        ttk.Entry(parent, textvariable=self.vars[key], style="Control.TEntry").grid(row=row, column=1, sticky="ew", padx=8, pady=3)
+        entry = ttk.Entry(parent, textvariable=self.vars[key], style="Control.TEntry")
+        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=3)
+        self.enable_file_drop(entry, key)
         browse = ttk.Button(parent, command=lambda: picker(key), style="Control.TButton")
         browse.grid(row=row, column=2, sticky="ew", pady=3)
         self.browse_buttons.append(browse)
@@ -577,6 +586,24 @@ class ClearMeGui(tk.Tk):
             self.vars[key].set(Path(path).name)
             if key in {"input", "dual_file1", "dual_file2"}:
                 self.start_analyze_selected()
+
+    def enable_file_drop(self, entry: ttk.Entry, key: str) -> None:
+        if DND_FILES is None:
+            return
+        entry.drop_target_register(DND_FILES)
+        entry.dnd_bind("<<Drop>>", lambda event: self.handle_file_drop(event, key))
+
+    def handle_file_drop(self, event, key: str) -> str:
+        paths = self.tk.splitlist(event.data)
+        path = next((Path(value) for value in paths if Path(value).is_file()), None)
+        if path is None:
+            return getattr(event, "action", "copy")
+        resolved = str(path.resolve())
+        self.input_paths[key] = resolved
+        self.vars[key].set(path.name)
+        if key in {"input", "dual_file1", "dual_file2"}:
+            self.start_analyze_selected()
+        return getattr(event, "action", "copy")
 
     def pick_dell_pfs_input(self, key: str) -> None:
         path = filedialog.askopenfilename(

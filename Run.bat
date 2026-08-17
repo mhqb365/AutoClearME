@@ -78,7 +78,7 @@ if errorlevel 1 (
   )
 )
 
-"%VENV_PY%" -c "import colorama, crccheck, pltable, biosutilities" >nul 2>nul
+"%VENV_PY%" -c "import colorama, crccheck, pltable, biosutilities, tkinterdnd2" >nul 2>nul
 if errorlevel 1 (
   echo Installing Auto Clear ME dependencies...
   "%VENV_PY%" -m pip install --upgrade pip
@@ -96,7 +96,7 @@ if errorlevel 1 (
   )
 )
 
-"%VENV_PY%" -c "import colorama, crccheck, pltable, biosutilities" >nul 2>nul
+"%VENV_PY%" -c "import colorama, crccheck, pltable, biosutilities, tkinterdnd2" >nul 2>nul
 if errorlevel 1 (
   echo Python dependencies are still missing or broken.
   echo Delete the .venv folder and run this file again.
