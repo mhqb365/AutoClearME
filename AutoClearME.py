@@ -721,6 +721,20 @@ def lenovo_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
     return blocks if blocks else lenovo_fallback_blocks(buffer)
 
 
+def lenovo_dmi_package_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = lenovo_dmi_blocks(buffer)
+    used_ranges = [(offset, offset + len(block)) for offset, block in blocks]
+    for candidate in find_winkeys(buffer):
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        block = buffer[start:end]
+        used_ranges.append((start, end))
+        blocks.append((start, block))
+    return blocks
+
+
 def lenovo_dmi_export_name(source: Path) -> Path:
     return unique_output_path(source.with_name(f"{source.stem}_LENOVO_DMI.lendmi"))
 
@@ -1210,7 +1224,7 @@ def dmi_package_payload(kind: str, blocks: list[tuple[int, bytes]]) -> dict:
 
 
 def export_lenovo_dmi(source: Path) -> tuple[Path, int]:
-    blocks = lenovo_dmi_blocks(source.read_bytes())
+    blocks = lenovo_dmi_package_blocks(source.read_bytes())
     if not blocks:
         raise RuntimeError("Lenovo DMI block was not found.")
     payload = dmi_package_payload("Lenovo", blocks)
@@ -1334,7 +1348,7 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
         target_blocks = dell_dmi_blocks(data)
         output_name = dell_dmi_import_output_name(target)
     else:
-        target_blocks = lenovo_dmi_blocks(data)
+        target_blocks = lenovo_dmi_package_blocks(data)
         output_name = lenovo_dmi_import_output_name(target)
     block_pairs = match_dmi_import_blocks(kind, blocks, block_meta, target_blocks)
     for block, offset, target_block in block_pairs:
@@ -1358,7 +1372,7 @@ LENOVO_DMI_LABELS = {
     0x0004: "Serial Number",
     0x000F: "Platform ID",
     0x0010: "OS",
-    0x0100: "Windows Key",
+    0x0100: "Windows Product Key",
     0x0B00: "UUID/ID",
 }
 
@@ -1387,20 +1401,22 @@ def clean_lenovo_dmi_value(value: str) -> str:
 
 def lenovo_dmi_label(value: str) -> str:
     if WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
-        return "Windows Key"
-    if re.fullmatch(r"[A-Z0-9]{7,10}", value) and not value.startswith(("82", "SDK")):
-        return "Serial"
-    if value.startswith("82") and re.fullmatch(r"[A-Z0-9]{8,12}", value):
+        return "Windows Product Key"
+    if value in {"WIN", "NO DPK"}:
+        return "OS"
+    if re.fullmatch(r"8[A-Z0-9]{7,11}", value):
         return "MTM"
+    if re.fullmatch(r"[A-Z0-9]{7,10}", value) and not value.startswith("SDK"):
+        return "Serial Number"
     if value.startswith("SDK"):
         return "Platform ID"
-    if re.search(r"(Think|Idea|Yoga|Legion|Lenovo)", value, re.IGNORECASE):
-        return "Product"
+    if re.search(r"(Think|Idea|Yoga|Legion|Lenovo|XiaoXin)", value, re.IGNORECASE):
+        return "Product Name"
     if re.fullmatch(r"[0-9]{13,16}", value):
         return "UUID/ID"
     if value.startswith("LNV"):
-        return "Board"
-    return "DMI"
+        return "Board ID"
+    return "Lenovo DMI"
 
 
 def lenovo_dmi_entry_label(entry_id: int, value: str) -> str:
@@ -1409,18 +1425,33 @@ def lenovo_dmi_entry_label(entry_id: int, value: str) -> str:
 
 def find_lenovo_dmi(buffer: bytes) -> list[LenovoDmiItem]:
     items: list[LenovoDmiItem] = []
-    seen = set()
-    for body, entry_count in lenovo_lenv_bodies(buffer):
+    for _start, _end, block_items in find_lenovo_dmi_groups(buffer):
+        items.extend(block_items)
+    return items
+
+
+def find_lenovo_dmi_groups(buffer: bytes) -> list[tuple[int, int, list[LenovoDmiItem]]]:
+    groups: list[tuple[int, int, list[LenovoDmiItem]]] = []
+    seen: set[str] = set()
+    for block_offset, block in lenovo_lenv_blocks(buffer):
+        xor_key = block[0x0D] if len(block) > 0x0D else 0
+        entry_count = int.from_bytes(block[0x08:0x0C], "little", signed=False) if len(block) >= 0x0C else 0
+        body = bytes(value ^ xor_key for value in block[0x10:])
+        block_items: list[LenovoDmiItem] = []
         for entry_id, payload in lenovo_lenv_payloads(body, entry_count):
             for match in re.findall(rb"[ -~]{3,}", payload):
                 value = clean_lenovo_dmi_value(match.decode("ascii", errors="ignore"))
-                if not value or value in seen:
+                if not is_lenovo_dmi_value(value) or value in seen:
                     continue
                 seen.add(value)
-                items.append(LenovoDmiItem(lenovo_dmi_entry_label(entry_id, value), value))
-    if items:
-        return items
-    for _offset, block in lenovo_fallback_blocks(buffer):
+                block_items.append(LenovoDmiItem(lenovo_dmi_entry_label(entry_id, value), value))
+        if block_items:
+            groups.append((block_offset, block_offset + len(block), block_items))
+    if groups:
+        append_lenovo_winkey_groups(buffer, groups, seen)
+        return groups
+    for block_offset, block in lenovo_fallback_blocks(buffer):
+        block_items = []
         for match in re.findall(rb"[ -~]{3,}", block):
             value = clean_lenovo_dmi_value(match.decode("ascii", errors="ignore"))
             if not value or value in seen:
@@ -1433,8 +1464,48 @@ def find_lenovo_dmi(buffer: bytes) -> list[LenovoDmiItem]:
             ):
                 continue
             seen.add(value)
-            items.append(LenovoDmiItem(lenovo_dmi_label(value), value.strip()))
-    return items
+            block_items.append(LenovoDmiItem(lenovo_dmi_label(value), value.strip()))
+        if block_items:
+            groups.append((block_offset, block_offset + len(block), block_items))
+    append_lenovo_winkey_groups(buffer, groups, seen)
+    return groups
+
+
+def append_lenovo_winkey_groups(buffer: bytes, groups: list[tuple[int, int, list[LenovoDmiItem]]], seen: set[str]) -> None:
+    used_ranges = [(start, end) for start, end, _items in groups]
+    for candidate in find_winkeys(buffer):
+        classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+        value = f"{candidate.key} | {classification}" if classification else candidate.key
+        if value in seen:
+            continue
+        seen.add(value)
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        groups.append((start, end, [LenovoDmiItem("Windows Product Key", value, candidate.offset, candidate.offset + len(candidate.key))]))
+
+
+def is_lenovo_dmi_value(value: str) -> bool:
+    if not value or len(value) > 96:
+        return False
+    if WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
+        return True
+    if re.fullmatch(r"[A-Z0-9]{7,10}", value) and not value.startswith(("82", "SDK")):
+        return True
+    if value.startswith("82") and re.fullmatch(r"[A-Z0-9]{8,12}", value):
+        return True
+    if value.startswith("SDK"):
+        return True
+    if re.search(r"(Think|Idea|Yoga|Legion|Lenovo|XiaoXin)", value, re.IGNORECASE):
+        return True
+    if re.fullmatch(r"[0-9]{13,16}", value):
+        return True
+    if value.startswith("LNV"):
+        return True
+    if value in {"WIN", "NO DPK"}:
+        return True
+    return False
 
 
 def hp_dmi_label(value: str) -> str:
@@ -3062,12 +3133,14 @@ def command_lenovo_dmi(args: argparse.Namespace) -> int:
                 print(f"  File does not exist: {log_path_name(path)}", flush=True)
                 failed += 1
                 continue
-            items = find_lenovo_dmi(path.read_bytes())
-            if not items:
+            groups = find_lenovo_dmi_groups(path.read_bytes())
+            if not groups:
                 print("  No Lenovo DMI found", flush=True)
                 continue
-            for item in items:
-                print(f"  {item.label}: {item.value}", flush=True)
+            for start, end, items in groups:
+                print(f"  Offset: [0x{start:X}, 0x{end:X}]", flush=True)
+                for item in items:
+                    print(f"  {item.label}: {item.value}", flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Find Lenovo DMI failed: {exc}", flush=True)

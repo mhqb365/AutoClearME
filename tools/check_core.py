@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -141,6 +141,10 @@ def main() -> int:
     board_acer_items = {(item.label, item.value) for item in find_acer_dmi(b"Acer\x00NBKTV1100241200AE04560\x00")}
     assert ("Board Serial Number", "NBKTV1100241200AE04560") in board_acer_items
     assert not find_acer_dmi(b"Acer Root CA0\x00Acer Platform Key0\x00Acer Database0\x00")
+    assert lenovo_dmi_label("83AM0002CD") == "MTM"
+    assert lenovo_dmi_label("XiaoXinPro 14 APH8") == "Product Name"
+    assert lenovo_dmi_label("WIN") == "OS"
+    assert lenovo_dmi_label("SDK0T76479") == "Platform ID"
     print("core smoke checks passed")
     return 0
 
