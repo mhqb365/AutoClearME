@@ -103,11 +103,20 @@ def main() -> int:
     assert ("Model Identifier", "UX425EA") in asus_items
     acer_block = bytearray(0x2000)
     acer_block[0x100:0x100 + 57] = b"Acer\x00Aspire A315-58\x00NXHS5AA00123456789ABC\x0012345678901\x00"
+    acer_block[0x180:0x19A] = b"Acer Root CA0\x00Acer Database0"
     acer_items = {(item.label, item.value) for item in find_acer_dmi(bytes(acer_block))}
     assert ("Vendor", "Acer") in acer_items
     assert ("Model", "Aspire A315-58") in acer_items
-    assert ("Serial Number", "NXHS5AA00123456789ABC") in acer_items
+    assert ("System Serial Number", "NXHS5AA00123456789ABC") in acer_items
     assert ("SNID", "12345678901") in acer_items
+    assert ("Vendor", "Acer Root CA0") not in acer_items
+    prefixed_acer = b"Acer\x00-HAspire A315-24P\x00NXKJBAA001320012693400\x00"
+    prefixed_acer_items = {(item.label, item.value) for item in find_acer_dmi(prefixed_acer)}
+    assert ("Model", "Aspire A315-24P") in prefixed_acer_items
+    assert ("System Serial Number", "NXKJBAA001320012693400") in prefixed_acer_items
+    board_acer_items = {(item.label, item.value) for item in find_acer_dmi(b"Acer\x00NBKTV1100241200AE04560\x00")}
+    assert ("Board Serial Number", "NBKTV1100241200AE04560") in board_acer_items
+    assert not find_acer_dmi(b"Acer Root CA0\x00Acer Platform Key0\x00Acer Database0\x00")
     print("core smoke checks passed")
     return 0
 

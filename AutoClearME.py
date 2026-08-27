@@ -134,6 +134,8 @@ class WinKeyCandidate:
 class LenovoDmiItem:
     label: str
     value: str
+    offset: int = -1
+    end: int = -1
 
 
 def run(cmd: list[str], cwd: Path | None = None) -> tuple[int, str]:
@@ -769,11 +771,20 @@ ACER_DMI_ANCHORS = (
     b"TravelMate",
     b"Veriton",
 )
-ACER_DMI_WINDOW = 0x800
-ACER_DMI_BLOCK_SIZE = 0x1000
+ACER_DMI_WINDOW = 0x1200
+ACER_DMI_BLOCK_SIZE = 0x2000
 ACER_SERIAL_RE = r"(?:NX|NB|DT|DQ|PT|PS|UT|UD|MR)[A-Z0-9]{8,25}"
 ACER_SERIAL_PATTERN = re.compile(ACER_SERIAL_RE)
 ACER_SERIAL_BYTES_PATTERN = re.compile(ACER_SERIAL_RE.encode("ascii"))
+ACER_MODEL_FAMILIES = ("aspire", "extensa", "nitro", "predator", "swift", "travelmate", "veriton")
+ACER_CERTIFICATE_TERMS = (
+    "root ca",
+    "platform key",
+    "key exchange key",
+    "database",
+    "database forbidden",
+    "certificate",
+)
 
 
 def hp_dmi_anchor_offsets(buffer: bytes) -> list[int]:
@@ -892,8 +903,11 @@ def acer_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
         end = min(len(buffer), start + ACER_DMI_BLOCK_SIZE)
         if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
             continue
+        block = buffer[start:end]
+        if not acer_dmi_block_has_values(block):
+            continue
         used_ranges.append((start, end))
-        blocks.append((start, buffer[start:end]))
+        blocks.append((start, block))
     if blocks:
         return blocks
     for offset in find_all_bytes(buffer, b"Acer"):
@@ -901,9 +915,51 @@ def acer_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
         end = min(len(buffer), start + ACER_DMI_BLOCK_SIZE)
         if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
             continue
+        block = buffer[start:end]
+        if not acer_dmi_block_has_values(block):
+            continue
         used_ranges.append((start, end))
-        blocks.append((start, buffer[start:end]))
+        blocks.append((start, block))
     return blocks
+
+
+def acer_dmi_package_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = acer_dmi_blocks(buffer)
+    used_ranges = [(offset, offset + len(block)) for offset, block in blocks]
+    for candidate in find_winkeys(buffer):
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        block = buffer[start:end]
+        used_ranges.append((start, end))
+        blocks.append((start, block))
+    return blocks
+
+
+def acer_dmi_block_has_values(block: bytes) -> bool:
+    values = [clean_acer_dmi_value(match.decode("ascii", errors="ignore")) for match in re.findall(rb"[ -~]{3,}", block)]
+    return any(is_acer_dmi_value(value) and acer_dmi_label(value) != "Vendor" for value in values)
+
+
+def clean_acer_dmi_value(value: str) -> str:
+    value = re.sub(r"\s+", " ", value.strip().strip("\x00"))
+    if not value:
+        return ""
+    lower = value.lower()
+    if "uefideviceidentifierpacket" in lower:
+        return ""
+    if lower.startswith("acer") and any(term in lower for term in ACER_CERTIFICATE_TERMS):
+        return ""
+    if lower in {"acernbsetup", "acerproductinfo", "acer data"}:
+        return ""
+    if re.fullmatch(r"acer\d*(?:\s+0)?", lower):
+        return "Acer"
+    for family in ACER_MODEL_FAMILIES:
+        match = re.search(rf"{family}\b", value, re.IGNORECASE)
+        if match:
+            return value[match.start():].strip()
+    return value
 
 
 def acer_dmi_label(value: str) -> str:
@@ -913,8 +969,12 @@ def acer_dmi_label(value: str) -> str:
     if re.fullmatch(r"\d{10,13}", value):
         return "SNID"
     if ACER_SERIAL_PATTERN.fullmatch(value):
+        if value.startswith("NX"):
+            return "System Serial Number"
+        if value.startswith("NB"):
+            return "Board Serial Number"
         return "Serial Number"
-    if any(name in lower for name in ("aspire", "extensa", "nitro", "predator", "swift", "travelmate", "veriton")):
+    if any(name in lower for name in ACER_MODEL_FAMILIES):
         return "Model"
     if lower.startswith("acer"):
         return "Vendor"
@@ -923,21 +983,36 @@ def acer_dmi_label(value: str) -> str:
 
 def is_acer_dmi_value(value: str) -> bool:
     lower = value.lower()
+    if not value or len(value) > 96:
+        return False
+    if lower.startswith("acer") and any(term in lower for term in ACER_CERTIFICATE_TERMS):
+        return False
+    if lower in {"acernbsetup", "acerproductinfo", "acer data"}:
+        return False
     return (
         WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")) is not None
         or re.fullmatch(r"\d{10,13}", value) is not None
         or ACER_SERIAL_PATTERN.fullmatch(value) is not None
         or lower.startswith("acer")
-        or any(name in lower for name in ("aspire", "extensa", "nitro", "predator", "swift", "travelmate", "veriton"))
+        or any(name in lower for name in ACER_MODEL_FAMILIES)
     )
 
 
 def find_acer_dmi(buffer: bytes) -> list[LenovoDmiItem]:
     items: list[LenovoDmiItem] = []
+    for _start, _end, block_items in find_acer_dmi_groups(buffer):
+        items.extend(block_items)
+    return items
+
+
+def find_acer_dmi_groups(buffer: bytes) -> list[tuple[int, int, list[LenovoDmiItem]]]:
+    groups: list[tuple[int, int, list[LenovoDmiItem]]] = []
     seen: set[tuple[str, str]] = set()
-    for _offset, block in acer_dmi_blocks(buffer):
-        for match in re.findall(rb"[ -~]{3,}", block):
-            value = match.decode("ascii", errors="ignore").strip()
+    for block_offset, block in acer_dmi_blocks(buffer):
+        block_items: list[LenovoDmiItem] = []
+        for match in re.finditer(rb"[ -~]{3,}", block):
+            raw_value = match.group(0).decode("ascii", errors="ignore")
+            value = clean_acer_dmi_value(raw_value)
             if not value or not is_acer_dmi_value(value):
                 continue
             label = acer_dmi_label(value)
@@ -945,8 +1020,26 @@ def find_acer_dmi(buffer: bytes) -> list[LenovoDmiItem]:
             if key in seen:
                 continue
             seen.add(key)
-            items.append(LenovoDmiItem(label, value))
-    return items
+            raw_start = block_offset + match.start()
+            value_delta = raw_value.find(value)
+            start = raw_start + value_delta if value_delta >= 0 else raw_start
+            end = start + len(value.encode("ascii", errors="ignore"))
+            item = LenovoDmiItem(label, value, start, end)
+            block_items.append(item)
+        if block_items:
+            groups.append((block_offset, block_offset + len(block), block_items))
+    for candidate in find_winkeys(buffer):
+        classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+        value = f"{candidate.key} | {classification}" if classification else candidate.key
+        key = ("Windows Product Key", value)
+        if key in seen:
+            continue
+        seen.add(key)
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        item = LenovoDmiItem("Windows Product Key", value, candidate.offset, candidate.offset + len(candidate.key))
+        groups.append((start, end, [item]))
+    return groups
 
 
 def acer_dmi_export_name(source: Path) -> Path:
@@ -959,7 +1052,7 @@ def acer_dmi_import_output_name(target: Path) -> Path:
 
 
 def export_acer_dmi(source: Path) -> tuple[Path, int]:
-    blocks = acer_dmi_blocks(source.read_bytes())
+    blocks = acer_dmi_package_blocks(source.read_bytes())
     if not blocks:
         raise RuntimeError("Acer DMI block was not found.")
     payload = dmi_package_payload("Acer", blocks)
@@ -1159,7 +1252,19 @@ def load_dmi_package(path: Path) -> tuple[str, list[bytes], list[dict]]:
 
 def dmi_block_markers(block: bytes) -> tuple[bytes, ...]:
     markers = []
-    for marker in (HP_LEGACY_DMI_MARKER, HP_INSYDE_DMI_MARKER, HP_MUD_MARKER, b"HP ", b"LENV", b"Acer", b"MFG0\x00", DELL_DMI_MARKER):
+    for marker in (
+        HP_LEGACY_DMI_MARKER,
+        HP_INSYDE_DMI_MARKER,
+        HP_MUD_MARKER,
+        b"HP ",
+        b"LENV",
+        b"Acer",
+        b"$DMI",
+        b"$BVDT",
+        WINKEY_OEM_MARKER,
+        b"MFG0\x00",
+        DELL_DMI_MARKER,
+    ):
         if marker in block:
             markers.append(marker)
     return tuple(markers)
@@ -1223,7 +1328,7 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
         target_blocks = asus_dmi_blocks(data)
         output_name = asus_dmi_import_output_name(target)
     elif kind_lower == "acer":
-        target_blocks = acer_dmi_blocks(data)
+        target_blocks = acer_dmi_package_blocks(data)
         output_name = acer_dmi_import_output_name(target)
     elif kind_lower == "dell":
         target_blocks = dell_dmi_blocks(data)
@@ -2988,12 +3093,14 @@ def command_acer_dmi(args: argparse.Namespace) -> int:
                 print(f"  File does not exist: {log_path_name(path)}", flush=True)
                 failed += 1
                 continue
-            items = find_acer_dmi(path.read_bytes())
-            if not items:
+            groups = find_acer_dmi_groups(path.read_bytes())
+            if not groups:
                 print("  No Acer DMI found", flush=True)
                 continue
-            for item in items:
-                print(f"  {item.label}: {item.value}", flush=True)
+            for start, end, items in groups:
+                print(f"  Offset: [0x{start:X}, 0x{end:X}]", flush=True)
+                for item in items:
+                    print(f"  {item.label}: {item.value}", flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Find Acer DMI failed: {exc}", flush=True)
