@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -145,6 +145,17 @@ def main() -> int:
     assert lenovo_dmi_label("XiaoXinPro 14 APH8") == "Product Name"
     assert lenovo_dmi_label("WIN") == "OS"
     assert lenovo_dmi_label("SDK0T76479") == "Platform ID"
+    dell_identity = bytearray(0x100)
+    dell_ppid = b"CN00VPNPCMC0011K0EDCA00"
+    dell_identity[0x10:0x10 + len(dell_ppid)] = dell_ppid
+    dell_identity[0x30:0x37] = b"5M6YGB3"
+    dell_items = {(item.label, item.value) for item in find_dell_dmi(bytes(dell_identity))}
+    assert ("Service Tag", "5M6YGB3") in dell_items
+    assert ("PPID", "CN00VPNPCMC0011K0EDCA00") in dell_items
+    dell_model_block = b"$DMI" + b"\x00" * 16 + b"Inspiron 3505\x00XPS]K\x00"
+    dell_model_items = {(item.label, item.value) for item in find_dell_dmi(dell_model_block)}
+    assert ("Model", "Inspiron 3505") in dell_model_items
+    assert ("Model", "XPS]K") not in dell_model_items
     print("core smoke checks passed")
     return 0
 

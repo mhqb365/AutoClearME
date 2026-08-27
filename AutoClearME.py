@@ -62,8 +62,8 @@ DELL_DMI_MARKER = b"$DMI"
 DELL_SERVICE_TAG_NAME = "EfiD01ServiceTag".encode("utf-16le") + b"\x00\x00"
 DELL_EPPID_NAME = "D01EppidVar".encode("utf-16le") + b"\x00\x00"
 DELL_SERVICE_TAG_PATTERN = re.compile(rb"^[A-Z0-9]{7}$")
-DELL_MODEL_PATTERN = re.compile(r"^\$?(Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)\b", re.IGNORECASE)
-DELL_MODEL_BYTES_PATTERN = re.compile(rb"\$?(?:Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [ -~]{2,40})?", re.IGNORECASE)
+DELL_MODEL_PATTERN = re.compile(r"^\$?(Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [A-Za-z0-9][A-Za-z0-9 -]{1,48})?$", re.IGNORECASE)
+DELL_MODEL_BYTES_PATTERN = re.compile(rb"\$?(?:Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [A-Za-z0-9][A-Za-z0-9 -]{1,48})?", re.IGNORECASE)
 
 
 @dataclass
@@ -1119,6 +1119,20 @@ def dell_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
     return blocks
 
 
+def dell_dmi_package_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = dell_dmi_blocks(buffer)
+    used_ranges = [(offset, offset + len(block)) for offset, block in blocks]
+    for candidate in find_winkeys(buffer):
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        block = buffer[start:end]
+        used_ranges.append((start, end))
+        blocks.append((start, block))
+    return blocks
+
+
 def dell_ascii_after_name(block: bytes, name: bytes, limit: int = 128) -> str:
     offset = block.find(name)
     if offset < 0:
@@ -1133,21 +1147,26 @@ def dell_ascii_after_name(block: bytes, name: bytes, limit: int = 128) -> str:
 
 def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
     items: list[LenovoDmiItem] = []
+    for _start, _end, block_items in find_dell_dmi_groups(buffer):
+        items.extend(block_items)
+    return items
+
+
+def find_dell_dmi_groups(buffer: bytes) -> list[tuple[int, int, list[LenovoDmiItem]]]:
+    groups: list[tuple[int, int, list[LenovoDmiItem]]] = []
     seen: set[tuple[str, str]] = set()
 
-    def add_item(label: str, value: str) -> None:
+    def add_item(target: list[LenovoDmiItem], label: str, value: str) -> None:
         value = value.strip().strip("$").strip()
         if not value or (label, value) in seen:
             return
         seen.add((label, value))
-        items.append(LenovoDmiItem(label, value))
-
-    def has_label(label: str) -> bool:
-        return any(item.label == label for item in items)
+        target.append(LenovoDmiItem(label, value))
 
     if len(buffer) >= DELL_IDENTITY_BLOCK_SIZE:
         identity = buffer[:DELL_IDENTITY_BLOCK_SIZE]
         ppid_match = re.match(rb"CN[A-Z0-9]{20,}", identity[0x10:0x30])
+        identity_items: list[LenovoDmiItem] = []
         values = [
             ("Service Tag", identity[0x30:0x37].decode("ascii", errors="ignore")),
             ("PPID", ppid_match.group(0).decode("ascii", errors="ignore") if ppid_match else ""),
@@ -1157,11 +1176,14 @@ def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
                 continue
             if label == "PPID" and not value.startswith("CN"):
                 continue
-            add_item(label, value)
+            add_item(identity_items, label, value)
+        if identity_items:
+            groups.append((0, DELL_IDENTITY_BLOCK_SIZE, identity_items))
     blocks = dell_dmi_blocks(buffer)
-    for _offset, block in blocks:
+    for offset, block in blocks:
         if len(block) == DELL_IDENTITY_BLOCK_SIZE:
             continue
+        block_items: list[LenovoDmiItem] = []
         values = [
             ("Service Tag", dell_ascii_after_name(block, DELL_SERVICE_TAG_NAME)),
             ("PPID", dell_ascii_after_name(block, DELL_EPPID_NAME, 256)),
@@ -1171,18 +1193,35 @@ def find_dell_dmi(buffer: bytes) -> list[LenovoDmiItem]:
                 continue
             if not value or (label, value) in seen:
                 continue
-            add_item(label, value)
+            add_item(block_items, label, value)
         for match in re.findall(rb"[ -~]{4,}", block):
             value = match.decode("ascii", errors="ignore").strip()
-            if DELL_MODEL_PATTERN.match(value):
-                add_item("Model", value)
+            if DELL_MODEL_PATTERN.fullmatch(value):
+                add_item(block_items, "Model", value)
             elif WINKEY_PATTERN.fullmatch(match):
-                add_item("Windows Key", value)
-    if blocks and not has_label("Service Tag"):
-        add_item("Service Tag", "Encoded, can not parse")
-    order = {"Service Tag": 0, "Model": 1, "Windows Key": 2, "PPID": 3}
-    items.sort(key=lambda item: order.get(item.label, 99))
-    return items
+                add_item(block_items, "Windows Product Key", value)
+        if block_items and not any(item.label == "Service Tag" for item in block_items):
+            add_item(block_items, "Service Tag", "Encoded, can not parse")
+        elif not block_items and (DELL_DMI_MARKER in block or DELL_SERVICE_TAG_NAME in block or DELL_EPPID_NAME in block):
+            add_item(block_items, "Service Tag", "Encoded, can not parse")
+        if block_items:
+            order = {"Service Tag": 0, "Model": 1, "Windows Product Key": 2, "PPID": 3}
+            block_items.sort(key=lambda item: order.get(item.label, 99))
+            groups.append((offset, offset + len(block), block_items))
+    used_ranges = [(start, end) for start, end, _items in groups]
+    for candidate in find_winkeys(buffer):
+        classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+        value = f"{candidate.key} | {classification}" if classification else candidate.key
+        key = ("Windows Product Key", value)
+        if key in seen:
+            continue
+        seen.add(key)
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        groups.append((start, end, [LenovoDmiItem("Windows Product Key", value, candidate.offset, candidate.offset + len(candidate.key))]))
+    return groups
 
 
 def dell_dmi_export_name(source: Path) -> Path:
@@ -1195,7 +1234,7 @@ def dell_dmi_import_output_name(target: Path) -> Path:
 
 
 def export_dell_dmi(source: Path) -> tuple[Path, int]:
-    blocks = dell_dmi_blocks(source.read_bytes())
+    blocks = dell_dmi_package_blocks(source.read_bytes())
     if not blocks:
         raise RuntimeError("Dell DMI block was not found.")
     payload = dmi_package_payload("Dell", blocks)
@@ -1345,7 +1384,7 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
         target_blocks = acer_dmi_package_blocks(data)
         output_name = acer_dmi_import_output_name(target)
     elif kind_lower == "dell":
-        target_blocks = dell_dmi_blocks(data)
+        target_blocks = dell_dmi_package_blocks(data)
         output_name = dell_dmi_import_output_name(target)
     else:
         target_blocks = lenovo_dmi_package_blocks(data)
@@ -3268,12 +3307,14 @@ def command_dell_dmi(args: argparse.Namespace) -> int:
                 print(f"  File does not exist: {log_path_name(path)}", flush=True)
                 failed += 1
                 continue
-            items = find_dell_dmi(path.read_bytes())
-            if not items:
+            groups = find_dell_dmi_groups(path.read_bytes())
+            if not groups:
                 print("  No Dell DMI found", flush=True)
                 continue
-            for item in items:
-                print(f"  {item.label}: {item.value}", flush=True)
+            for start, end, items in groups:
+                print(f"  Offset: [0x{start:X}, 0x{end:X}]", flush=True)
+                for item in items:
+                    print(f"  {item.label}: {item.value}", flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Find Dell DMI failed: {exc}", flush=True)
