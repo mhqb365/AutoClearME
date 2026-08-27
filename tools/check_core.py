@@ -101,6 +101,30 @@ def main() -> int:
     assert ("System Identifier", "QCCXKP6BD01703586") in asus_items
     assert ("Configuration ID", "0301A") in asus_items
     assert ("Model Identifier", "UX425EA") in asus_items
+    old_asus_mfg = bytearray(b"\xFF" * 0x104)
+    for offset, value in (
+        (0x00, b"MFG0\x00"),
+        (0x05, b"H4N0CV09J663168"),
+        (0x1E, b"90NB0DL2-M00740"),
+        (0x32, b"N0CV1716MB0068401"),
+        (0x55, b"BN13"),
+        (0x69, b"UX410UAK.3"),
+        (0x73, b"01"),
+    ):
+        old_asus_mfg[offset:offset + len(value)] = value
+    old_asus_items = {(item.label, item.value) for item in find_asus_dmi(bytes(old_asus_mfg))}
+    assert ("Board Serial Number", "H4N0CV09J663168") in old_asus_items
+    assert ("Model Identifier", "UX410UAK") in old_asus_items
+    bad_asus_mfg = bytearray(b"\xFF" * 0x104)
+    for offset, value in (
+        (0x00, b"MFG0\x00"),
+        (0x05, b"J9ORCX08X:7=;>7"),
+        (0x1E, b"98NR80I1-O8<998"),
+        (0x32, b"YcCBKn;BZ<;583;79"),
+        (0x85, b"X=84GE"),
+    ):
+        bad_asus_mfg[offset:offset + len(value)] = value
+    assert not find_asus_dmi(bytes(bad_asus_mfg))
     acer_block = bytearray(0x2000)
     acer_block[0x100:0x100 + 57] = b"Acer\x00Aspire A315-58\x00NXHS5AA00123456789ABC\x0012345678901\x00"
     acer_block[0x180:0x19A] = b"Acer Root CA0\x00Acer Database0"

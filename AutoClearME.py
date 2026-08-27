@@ -1325,7 +1325,7 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
         target_blocks = hp_dmi_blocks(data)
         output_name = hp_dmi_import_output_name(target)
     elif kind_lower == "asus":
-        target_blocks = asus_dmi_blocks(data)
+        target_blocks = asus_dmi_package_blocks(data)
         output_name = asus_dmi_import_output_name(target)
     elif kind_lower == "acer":
         target_blocks = acer_dmi_package_blocks(data)
@@ -1336,15 +1336,6 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
     else:
         target_blocks = lenovo_dmi_blocks(data)
         output_name = lenovo_dmi_import_output_name(target)
-    if kind_lower == "asus":
-        if not target_blocks:
-            raise RuntimeError("Target BIOS does not contain any matching ASUS DMI block.")
-        source_block = max(blocks, key=lambda block: (len(asus_mfg_fields(block)), sum(map(len, asus_mfg_fields(block).values()))))
-        for offset, _target_block in target_blocks:
-            for _label, start, end in ASUS_MFG_SLOTS:
-                data[offset + start:offset + end] = source_block[start:end]
-        output_name.write_bytes(data)
-        return output_name, len(target_blocks), kind
     block_pairs = match_dmi_import_blocks(kind, blocks, block_meta, target_blocks)
     for block, offset, target_block in block_pairs:
         if len(block) != len(target_block):
@@ -1578,6 +1569,9 @@ def detect_bios_version(buffer: bytes) -> tuple[str, str]:
 ASUS_MFG_MARKER = b"MFG0\x00"
 ASUS_DMI_RECORD_SIZE = 0x104
 ASUS_MODEL_PATTERN = re.compile(r"^(?:[A-Z]{1,4}\d{3,4}[A-Z]{0,3})(?:[.-][A-Z0-9]+)?$", re.IGNORECASE)
+ASUS_BOARD_PART_PATTERN = re.compile(r"^90N[A-Z0-9]{4,8}-[A-Z0-9]{4,8}$", re.IGNORECASE)
+ASUS_SERIAL_PATTERN = re.compile(r"^[A-Z0-9]{10,20}$", re.IGNORECASE)
+ASUS_BOARD_ID_PATTERN = re.compile(r"^[A-Z0-9]{8,32}$", re.IGNORECASE)
 ASUS_MFG_SLOTS = (
     ("Board Serial Number", 0x05, 0x1E),
     ("Board Part Number", 0x1E, 0x32),
@@ -1612,17 +1606,65 @@ def asus_mfg_fields(block: bytes) -> dict[str, str]:
     for label, start, end in ASUS_MFG_SLOTS:
         raw = block[start:end].split(b"\x00", 1)[0].split(b"\xFF", 1)[0]
         value = raw.decode("ascii", errors="ignore").strip()
+        if label == "Manufacture Date":
+            match = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?", value)
+            value = match.group(0) if match else value
         if value:
             fields[label] = value
+    config = fields.get("Configuration ID", "")
+    if "Model Identifier" not in fields and "." in config:
+        model = config.split(".", 1)[0]
+        if ASUS_MODEL_PATTERN.fullmatch(model):
+            fields["Model Identifier"] = model
     return fields
 
 
 def find_asus_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    items: list[LenovoDmiItem] = []
+    for _start, _end, block_items in find_asus_dmi_groups(buffer):
+        items.extend(block_items)
+    return items
+
+
+def find_asus_dmi_groups(buffer: bytes) -> list[tuple[int, int, list[LenovoDmiItem]]]:
+    groups: list[tuple[int, int, list[LenovoDmiItem]]] = []
+    seen: set[tuple[str, str]] = set()
     blocks = asus_dmi_blocks(buffer)
-    if not blocks:
-        return []
-    fields = max((asus_mfg_fields(block) for _offset, block in blocks), key=lambda item: (len(item), sum(map(len, item.values()))))
-    return [LenovoDmiItem(label, fields[label]) for label, _start, _end in ASUS_MFG_SLOTS if label in fields]
+    if blocks:
+        best_offset, best_block = max(
+            blocks,
+            key=lambda item: (len(asus_mfg_fields(item[1])), sum(map(len, asus_mfg_fields(item[1]).values()))),
+        )
+        fields = asus_mfg_fields(best_block)
+        items = []
+        for label, start, end in ASUS_MFG_SLOTS:
+            if label not in fields:
+                continue
+            value = fields[label]
+            key = (label, value)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(LenovoDmiItem(label, value, best_offset + start, best_offset + end))
+        if "Model Identifier" in fields and all(item.label != "Model Identifier" for item in items):
+            value = fields["Model Identifier"]
+            key = ("Model Identifier", value)
+            if key not in seen:
+                seen.add(key)
+                items.append(LenovoDmiItem("Model Identifier", value, best_offset, best_offset + len(best_block)))
+        if items:
+            groups.append((best_offset, best_offset + len(best_block), items))
+    for candidate in find_winkeys(buffer):
+        classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+        value = f"{candidate.key} | {classification}" if classification else candidate.key
+        key = ("Windows Product Key", value)
+        if key in seen:
+            continue
+        seen.add(key)
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        groups.append((start, end, [LenovoDmiItem("Windows Product Key", value, candidate.offset, candidate.offset + len(candidate.key))]))
+    return groups
 
 
 def asus_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
@@ -1632,12 +1674,36 @@ def asus_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
         if len(block) != ASUS_DMI_RECORD_SIZE:
             continue
         fields = asus_mfg_fields(block)
-        if not fields.get("Board Part Number", "").upper().startswith("90N"):
-            continue
+        serial = fields.get("Board Serial Number", "")
+        part = fields.get("Board Part Number", "")
+        board_id = fields.get("Board ID", "")
         identifier = fields.get("Model Identifier", "")
-        if not ASUS_MODEL_PATTERN.fullmatch(identifier):
+        config = fields.get("Configuration ID", "")
+        if not ASUS_SERIAL_PATTERN.fullmatch(serial):
+            continue
+        if not ASUS_BOARD_PART_PATTERN.fullmatch(part):
+            continue
+        if board_id and not ASUS_BOARD_ID_PATTERN.fullmatch(board_id):
+            continue
+        if identifier and not ASUS_MODEL_PATTERN.fullmatch(identifier):
+            continue
+        if not identifier and not (config and re.fullmatch(r"[A-Z0-9]{3,16}\.\d{1,4}|[A-Z0-9]{4,8}", config, re.IGNORECASE)):
             continue
         blocks.append((offset, block))
+    return blocks
+
+
+def asus_dmi_package_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = asus_dmi_blocks(buffer)
+    used_ranges = [(offset, offset + len(block)) for offset, block in blocks]
+    for candidate in find_winkeys(buffer):
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        block = buffer[start:end]
+        used_ranges.append((start, end))
+        blocks.append((start, block))
     return blocks
 
 
@@ -1651,7 +1717,7 @@ def asus_dmi_import_output_name(target: Path) -> Path:
 
 
 def export_asus_dmi(source: Path) -> tuple[Path, int]:
-    blocks = asus_dmi_blocks(source.read_bytes())
+    blocks = asus_dmi_package_blocks(source.read_bytes())
     if not blocks:
         raise RuntimeError("Asus DMI block was not found.")
     payload = dmi_package_payload("ASUS", blocks)
@@ -3018,12 +3084,14 @@ def command_asus_dmi(args: argparse.Namespace) -> int:
                 print(f"  File does not exist: {log_path_name(path)}", flush=True)
                 failed += 1
                 continue
-            items = find_asus_dmi(path.read_bytes())
-            if not items:
+            groups = find_asus_dmi_groups(path.read_bytes())
+            if not groups:
                 print("  No Asus DMI found", flush=True)
                 continue
-            for item in items:
-                print(f"  {item.label}: {item.value}", flush=True)
+            for start, end, items in groups:
+                print(f"  Offset: [0x{start:X}, 0x{end:X}]", flush=True)
+                for item in items:
+                    print(f"  {item.label}: {item.value}", flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Find Asus DMI failed: {exc}", flush=True)
