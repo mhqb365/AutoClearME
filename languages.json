@@ -17,6 +17,7 @@
       "hp_dmi_tab": "HP DMI",
       "acer_dmi_tab": "Acer DMI",
       "dell_dmi_tab": "Dell DMI",
+      "dell_8fc8_unlock_tab": "Dell 8FC8 Unlock",
       "dell_pfs_tab": "Dell PFS",
       "bios_file": "BIOS file",
       "bios_file_1": "BIOS file 1",
@@ -36,6 +37,7 @@
       "unlock_asus": "Unlock ASUS",
       "unlock_acer": "Unlock ACER",
       "unlock_hp": "Unlock HP",
+      "unlock_dell_8fc8": "Unlock Dell 8FC8",
       "asus_dmi": "Export Asus DMI",
       "lenovo_dmi": "Export Lenovo DMI",
       "hp_dmi": "Export HP DMI",
@@ -154,8 +156,10 @@
       "update_starting": "Đang bắt đầu cập nhật. App sẽ đóng và mở lại sau khi cập nhật xong",
       "update_check_failed": "Không thể kiểm tra cập nhật",
       "dell_dmi_tab": "Dell DMI",
+      "dell_8fc8_unlock_tab": "Dell 8FC8 Unlock",
       "dell_pfs_tab": "Dell PFS",
       "dell_pfs_file": "File .exe",
+      "unlock_dell_8fc8": "Mở khóa Dell 8FC8",
       "extract_dell_pfs": "Extract Dell PFS"
     }
   }

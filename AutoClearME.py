@@ -64,6 +64,11 @@ DELL_EPPID_NAME = "D01EppidVar".encode("utf-16le") + b"\x00\x00"
 DELL_SERVICE_TAG_PATTERN = re.compile(rb"^[A-Z0-9]{7}$")
 DELL_MODEL_PATTERN = re.compile(r"^\$?(Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [A-Za-z0-9][A-Za-z0-9 -]{1,48})?$", re.IGNORECASE)
 DELL_MODEL_BYTES_PATTERN = re.compile(rb"\$?(?:Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [A-Za-z0-9][A-Za-z0-9 -]{1,48})?", re.IGNORECASE)
+DELL_8FC8_UNLOCK_SIGNATURES = (
+    bytes.fromhex("00 FD AA 30 00 00 00 00 04 00 FF"),
+    bytes.fromhex("00 FC AA 31 00 00 00 00 04 00 FF"),
+)
+DELL_8FC8_UNLOCKED_SIGNATURES = tuple(signature[:2] + b"\x00" + signature[3:] for signature in DELL_8FC8_UNLOCK_SIGNATURES)
 
 
 @dataclass
@@ -2601,6 +2606,11 @@ def asus_unlock_output_name(source: Path) -> Path:
     return unique_output_path(source.with_name(f"{source.stem}_UNLOCK{suffix}"))
 
 
+def dell_8fc8_unlock_output_name(source: Path) -> Path:
+    suffix = source.suffix or ".bin"
+    return unique_output_path(source.with_name(f"{source.stem}_8FC8_UNLOCKED{suffix}"))
+
+
 def has_password_payload(region: bytes | bytearray) -> bool:
     return any(value not in {0x00, 0xFF} for value in region)
 
@@ -2714,6 +2724,30 @@ def unlock_hp_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]
     if not markers_found or not cleared_ranges:
         return None, []
     output = asus_unlock_output_name(source)
+    output.write_bytes(data)
+    return output, cleared_ranges
+
+
+def unlock_dell_8fc8_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]]:
+    data = bytearray(source.read_bytes())
+    cleared_ranges: list[tuple[int, int]] = []
+    signatures_found = 0
+    for signature in DELL_8FC8_UNLOCK_SIGNATURES:
+        marker_offset = data.find(signature)
+        while marker_offset >= 0:
+            signatures_found += 1
+            patch_offset = marker_offset + 2
+            if data[patch_offset] == 0xAA:
+                data[patch_offset] = 0x00
+                cleared_ranges.append((patch_offset, 1))
+            marker_offset = data.find(signature, marker_offset + len(signature))
+    if not signatures_found:
+        if all(signature in data for signature in DELL_8FC8_UNLOCKED_SIGNATURES):
+            return None, []
+        raise RuntimeError("Dell 8FC8 lock signature was not found. This file may not use the supported 8FC8 layout.")
+    if not cleared_ranges:
+        return None, []
+    output = dell_8fc8_unlock_output_name(source)
     output.write_bytes(data)
     return output, cleared_ranges
 
@@ -3518,6 +3552,29 @@ def command_unlock_hp(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 2
 
 
+def command_unlock_dell_8fc8(args: argparse.Namespace) -> int:
+    failed = 0
+    for value in args.input:
+        path = Path(value).resolve()
+        print(f"[INFO] Unlock Dell 8FC8 in {log_path_name(path)}", flush=True)
+        try:
+            if not path.exists():
+                print(f"  File does not exist: {log_path_name(path)}", flush=True)
+                failed += 1
+                continue
+            output, cleared_ranges = unlock_dell_8fc8_password(path)
+            if output:
+                for offset, length in cleared_ranges:
+                    print(f"  Patch: [0x{offset:X}, 0x{offset + length:X}]", flush=True)
+                print(f"  Output: {log_path_name(output)}", flush=True)
+            else:
+                print("  Already unlocked", flush=True)
+        except Exception as exc:
+            failed += 1
+            print(f"  Unlock Dell 8FC8 failed: {exc}", flush=True)
+    return 0 if failed == 0 else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Automate Intel CSME 11-20 clean ME preparation.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3626,6 +3683,10 @@ def build_parser() -> argparse.ArgumentParser:
     unlock_hp = sub.add_parser("unlock-hp", help="Clear HP BIOS password.")
     unlock_hp.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
     unlock_hp.set_defaults(func=command_unlock_hp)
+
+    unlock_dell_8fc8 = sub.add_parser("unlock-dell-8fc8", help="Clear Dell 8FC8 BIOS lock.")
+    unlock_dell_8fc8.add_argument("--input", action="append", required=True, help="Dell 8FC8 BIOS dump to patch.")
+    unlock_dell_8fc8.set_defaults(func=command_unlock_dell_8fc8)
     return p
 
 

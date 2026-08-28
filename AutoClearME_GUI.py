@@ -95,6 +95,7 @@ class ClearMeGui(DND_ROOT):
         self.stop_requested = False
         self.last_result = ""
         self.last_analyze_result = ""
+        self.last_unlock_files: list[str] = []
         self.last_oem_dmi_files: list[str] = []
         self.last_oem_dmi_vendor = ""
         self.dell_dmi_warning_shown = False
@@ -123,6 +124,7 @@ class ClearMeGui(DND_ROOT):
             "acer_dmi_target": tk.StringVar(),
             "dell_dmi_package": tk.StringVar(),
             "dell_dmi_target": tk.StringVar(),
+            "dell_8fc8_input": tk.StringVar(),
             "dell_pfs_input": tk.StringVar(),
             "rgn_choice": tk.StringVar(),
             "fit_choice": tk.StringVar(),
@@ -224,6 +226,15 @@ class ClearMeGui(DND_ROOT):
         self.import_dell_dmi_button = dell_dmi_tab.import_button
         self.dell_dmi_button = dell_dmi_tab.find_button
         tabs.add(dell_dmi_tab, text="")
+
+        dell_8fc8_tab = ttk.Frame(tabs, padding=10)
+        dell_8fc8_tab.columnconfigure(1, weight=1)
+        self.path_row(dell_8fc8_tab, 0, "bios_file", "dell_8fc8_input", self.pick_input, clearable=True)
+        dell_8fc8_actions = ttk.Frame(dell_8fc8_tab)
+        dell_8fc8_actions.grid(row=1, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        self.dell_8fc8_button = ttk.Button(dell_8fc8_actions, command=self.start_unlock_dell_8fc8)
+        self.dell_8fc8_button.grid(row=0, column=0)
+        tabs.add(dell_8fc8_tab, text="")
 
         dell_pfs_tab = ttk.Frame(tabs, padding=10)
         dell_pfs_tab.columnconfigure(1, weight=1)
@@ -403,9 +414,10 @@ class ClearMeGui(DND_ROOT):
         self.tabs.tab(2, text=self.t("acer_dmi_tab"))
         self.tabs.tab(3, text=self.t("asus_dmi_tab"))
         self.tabs.tab(4, text=self.t("dell_dmi_tab"))
-        self.tabs.tab(5, text=self.t("dell_pfs_tab"))
-        self.tabs.tab(6, text=self.t("hp_dmi_tab"))
-        self.tabs.tab(7, text=self.t("lenovo_dmi_tab"))
+        self.tabs.tab(5, text=self.t("dell_8fc8_unlock_tab"))
+        self.tabs.tab(6, text=self.t("dell_pfs_tab"))
+        self.tabs.tab(7, text=self.t("hp_dmi_tab"))
+        self.tabs.tab(8, text=self.t("lenovo_dmi_tab"))
         self.import_dmi_button.configure(text=self.t("import_dmi"))
         self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.import_acer_dmi_button.configure(text=self.t("import_acer_dmi"))
@@ -420,6 +432,7 @@ class ClearMeGui(DND_ROOT):
         self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.acer_dmi_button.configure(text=self.t("acer_dmi"))
         self.dell_dmi_button.configure(text=self.t("dell_dmi"))
+        self.dell_8fc8_button.configure(text=self.t("unlock_dell_8fc8"))
         self.dell_pfs_button.configure(text=self.t("extract_dell_pfs"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
@@ -867,6 +880,18 @@ class ClearMeGui(DND_ROOT):
     def start_unlock_hp(self) -> None:
         self.start_unlock_vendor("HP", "unlock-hp", self.unlock_hp_button, "UNLOCK_HP_DONE")
 
+    def start_unlock_dell_8fc8(self) -> None:
+        source = self.input_path("dell_8fc8_input")
+        if not source:
+            self.log_info("Unlock Dell 8FC8 skipped: please select file first")
+            return
+        self.dell_8fc8_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_unlock_result = ""
+        self.last_unlock_files = [source]
+        cmd = self.engine_cmd("unlock-dell-8fc8", "--input", source)
+        self.start_command(cmd, "UNLOCK_DELL_8FC8_DONE")
+
     def start_unlock_vendor(self, vendor: str, command: str, button: ttk.Button, done_tag: str) -> None:
         files = self.selected_bios_files()
         if not files:
@@ -875,6 +900,7 @@ class ClearMeGui(DND_ROOT):
         button.configure(state="disabled")
         self.status_var.set(self.t("running"))
         self.last_unlock_result = ""
+        self.last_unlock_files = files
         cmd = self.engine_cmd(command)
         for path in files:
             cmd.extend(["--input", path])
@@ -989,7 +1015,7 @@ class ClearMeGui(DND_ROOT):
             elif done_tag == "DELL_PFS_DONE":
                 self.last_result += line
                 self.queue.put(line)
-            elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE"}:
+            elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE", "UNLOCK_DELL_8FC8_DONE"}:
                 self.last_unlock_result += line
                 self.queue.put(line)
             elif done_tag == "DMI_IMPORT_DONE":
@@ -1089,6 +1115,9 @@ class ClearMeGui(DND_ROOT):
         if tag == "UNLOCK_HP_DONE":
             self.handle_unlock_done(code, self.unlock_hp_button, "HP")
             return
+        if tag == "UNLOCK_DELL_8FC8_DONE":
+            self.handle_unlock_done(code, self.dell_8fc8_button, "Dell 8FC8")
+            return
         if tag == "DMI_IMPORT_DONE":
             self.handle_dmi_import_done(code)
             return
@@ -1104,6 +1133,7 @@ class ClearMeGui(DND_ROOT):
             self.unlock_asus_button,
             self.unlock_acer_button,
             self.unlock_hp_button,
+            self.dell_8fc8_button,
             self.asus_dmi_button,
             self.lenovo_dmi_button,
             self.hp_dmi_button,
@@ -1195,7 +1225,7 @@ class ClearMeGui(DND_ROOT):
         for line in self.last_unlock_result.splitlines():
             if line.strip().startswith("Output:"):
                 name = line.split(":", 1)[1].strip()
-                for source in self.selected_bios_files():
+                for source in self.last_unlock_files or self.selected_bios_files():
                     candidate = Path(source).resolve().with_name(name)
                     if candidate.exists():
                         outputs.append(candidate)

@@ -4,11 +4,12 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, hp_dmi_label, is_hp_model, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, hp_dmi_label, is_hp_model, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches, unlock_dell_8fc8_password
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -156,6 +157,24 @@ def main() -> int:
     dell_model_items = {(item.label, item.value) for item in find_dell_dmi(dell_model_block)}
     assert ("Model", "Inspiron 3505") in dell_model_items
     assert ("Model", "XPS]K") not in dell_model_items
+    locked_8fc8 = (
+        bytes.fromhex("00 FD AA 30 00 00 00 00 04 00 FF")
+        + b"\xFF" * 8
+        + bytes.fromhex("00 FC AA 31 00 00 00 00 04 00 FF")
+    )
+    unlocked_8fc8 = locked_8fc8.replace(b"\xAA\x30", b"\x00\x30").replace(b"\xAA\x31", b"\x00\x31")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        locked_path = Path(temp_dir) / "locked.bin"
+        locked_path.write_bytes(locked_8fc8)
+        output, cleared_ranges = unlock_dell_8fc8_password(locked_path)
+        assert output is not None
+        assert output.read_bytes() == unlocked_8fc8
+        assert cleared_ranges == [(2, 1), (21, 1)]
+        unlocked_path = Path(temp_dir) / "unlocked.bin"
+        unlocked_path.write_bytes(unlocked_8fc8)
+        output, cleared_ranges = unlock_dell_8fc8_password(unlocked_path)
+        assert output is None
+        assert cleared_ranges == []
     assert hp_dmi_label("AAAAA-BBBBB-CCCCC-DDDDD-EEEEE") == "Windows Product Key"
     assert is_hp_model("HP ProBook 450 G8 Notebook")
     assert not is_hp_model("HP Linux Installer")
