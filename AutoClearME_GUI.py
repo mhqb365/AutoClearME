@@ -131,7 +131,7 @@ class ClearMeGui(DND_ROOT):
             "merge_bios2": tk.StringVar(),
             "split_bios_input": tk.StringVar(),
             "split_bios1_size": tk.StringVar(value="8MB"),
-            "split_bios2_size": tk.StringVar(value="8MB"),
+            "split_bios2_size": tk.StringVar(value="16MB"),
             "oem_dmi_vendor": tk.StringVar(value="Acer"),
             "oem_dmi_target": tk.StringVar(),
             "oem_dmi_package": tk.StringVar(),
@@ -201,13 +201,18 @@ class ClearMeGui(DND_ROOT):
         form = ttk.Frame(panes, padding=(0, 0, 0, 10))
         form.columnconfigure(1, weight=1)
         panes.add(form, weight=0)
-        tab_bar = ttk.Frame(form)
-        tab_bar.grid(row=0, column=0, columnspan=4, sticky="ew")
+        self.form = form
+        menu_row = ttk.Frame(form)
+        menu_row.grid(row=0, column=0, columnspan=4, sticky="ew")
+        menu_row.columnconfigure(1, weight=1)
+        self.feature_menu = tk.Menu(menu_row, tearoff=False)
+        self.feature_menu_button = ttk.Menubutton(menu_row, menu=self.feature_menu, style="Control.TButton")
+        self.feature_menu_button.grid(row=0, column=0, sticky="w", padx=(0, 10), pady=(0, 8))
+        self.selected_feature_var = tk.StringVar()
+        ttk.Label(menu_row, textvariable=self.selected_feature_var).grid(row=0, column=1, sticky="w", pady=(0, 8))
         tabs = ttk.Notebook(form, style="HiddenTabs.TNotebook")
         tabs.grid(row=1, column=0, columnspan=4, sticky="ew")
         tabs.bind("<<NotebookTabChanged>>", self.on_tab_changed)
-        self.tab_bar = tab_bar
-        self.tab_buttons: list[ttk.Button] = []
 
         single_tab = ttk.Frame(tabs, padding=10)
         single_tab.columnconfigure(1, weight=1)
@@ -292,7 +297,7 @@ class ClearMeGui(DND_ROOT):
         self.dell_pfs_button.grid(row=0, column=0)
         tabs.add(dell_pfs_tab, text="")
         self.tabs = tabs
-        self.rebuild_tab_bar()
+        self.rebuild_feature_menu()
         self.unlock_acer_button = self.unlock_acer_tab_button
         self.unlock_asus_button = self.unlock_asus_tab_button
         self.unlock_hp_button = self.unlock_hp_tab_button
@@ -420,7 +425,7 @@ class ClearMeGui(DND_ROOT):
         if not hasattr(self, "tabs"):
             return
         tab_index = self.tabs.index("current")
-        self.update_tab_button_states()
+        self.update_selected_feature_label()
         if tab_index >= 2:
             self.show_main_actions(False)
             self.update_tabs_height()
@@ -454,8 +459,18 @@ class ClearMeGui(DND_ROOT):
         current = self.tabs.nametowidget(self.tabs.select())
         current.update_idletasks()
         self.tabs.configure(height=current.winfo_reqheight())
+        self.after_idle(self.fit_control_pane_height)
 
-    def rebuild_tab_bar(self) -> None:
+    def fit_control_pane_height(self) -> None:
+        if not hasattr(self, "panes") or not hasattr(self, "form"):
+            return
+        self.form.update_idletasks()
+        try:
+            self.panes.sashpos(0, self.form.winfo_reqheight())
+        except tk.TclError:
+            pass
+
+    def rebuild_feature_menu(self) -> None:
         self.feature_tab_keys = [
             "single_bios",
             "dual_bios",
@@ -472,34 +487,61 @@ class ClearMeGui(DND_ROOT):
             "unlock_hp_tab",
             "dell_pfs_tab",
         ]
-        for child in self.tab_bar.winfo_children():
-            child.destroy()
-        self.tab_buttons = []
-        for index, key in enumerate(self.feature_tab_keys):
-            button = ttk.Button(
-                self.tab_bar,
-                command=lambda selected=index: self.select_feature_tab(selected),
-                style="Control.TButton",
-            )
-            button.grid(row=index // 7, column=index % 7, sticky="ew", padx=(0, 4), pady=(0, 4))
-            self.tab_bar.columnconfigure(index % 7, weight=1)
-            self.tab_buttons.append(button)
-        self.update_tab_button_labels()
-        self.update_tab_button_states()
+        self.feature_menu_groups = [
+            (None, [(0, "single_bios"), (1, "dual_bios"), (2, "merge_bios"), (3, "split_bios")]),
+            ("acer_group", [(4, "acer_dmi_tab"), (10, "unlock_acer_tab")]),
+            ("asus_group", [(5, "asus_dmi_tab"), (11, "unlock_asus_tab")]),
+            ("dell_group", [(6, "dell_dmi_tab"), (9, "dell_8fc8_unlock_tab"), (13, "dell_pfs_tab")]),
+            ("hp_group", [(7, "hp_dmi_tab"), (12, "unlock_hp_tab")]),
+            ("lenovo_group", [(8, "lenovo_dmi_tab")]),
+        ]
+        self.feature_menu.delete(0, "end")
+        self.feature_submenus: list[tuple[tk.Menu, list[tuple[int, str]]]] = []
+        for group_key, items in self.feature_menu_groups:
+            if group_key is None:
+                for tab_index, item_key in items:
+                    self.feature_menu.add_command(
+                        label=self.t(item_key),
+                        command=lambda selected=tab_index: self.select_feature_tab(selected),
+                    )
+                self.feature_menu.add_separator()
+                continue
+            submenu = tk.Menu(self.feature_menu, tearoff=False)
+            for tab_index, item_key in items:
+                submenu.add_command(
+                    label=self.t(item_key),
+                    command=lambda selected=tab_index: self.select_feature_tab(selected),
+                )
+            self.feature_menu.add_cascade(label=self.t(group_key), menu=submenu)
+            self.feature_submenus.append((submenu, items))
+        self.update_feature_menu_labels()
+        self.update_selected_feature_label()
 
     def select_feature_tab(self, index: int) -> None:
         self.tabs.select(index)
 
-    def update_tab_button_labels(self) -> None:
-        for button, key in zip(self.tab_buttons, self.feature_tab_keys):
-            button.configure(text=self.t(key))
+    def update_feature_menu_labels(self) -> None:
+        self.feature_menu_button.configure(text=self.t("menu"))
+        menu_index = 0
+        for group_key, items in self.feature_menu_groups:
+            if group_key is None:
+                for _tab_index, item_key in items:
+                    self.feature_menu.entryconfigure(menu_index, label=self.t(item_key))
+                    menu_index += 1
+                menu_index += 1
+                continue
+            self.feature_menu.entryconfigure(menu_index, label=self.t(group_key))
+            menu_index += 1
+        for submenu, items in self.feature_submenus:
+            for item_index, (_tab_index, item_key) in enumerate(items):
+                submenu.entryconfigure(item_index, label=self.t(item_key))
 
-    def update_tab_button_states(self) -> None:
-        if not hasattr(self, "tab_buttons"):
+    def update_selected_feature_label(self) -> None:
+        if not hasattr(self, "feature_tab_keys"):
             return
         current = self.tabs.index("current")
-        for index, button in enumerate(self.tab_buttons):
-            button.configure(state="disabled" if index == current else "normal")
+        if 0 <= current < len(self.feature_tab_keys):
+            self.selected_feature_var.set(self.t(self.feature_tab_keys[current]))
 
     def t(self, key: str) -> str:
         lang = LANG_LABELS.get(self.lang_var.get(), "en")
@@ -513,7 +555,8 @@ class ClearMeGui(DND_ROOT):
         self.ui["subtitle"].configure(text=self.t("subtitle"))
         self.ui["about_button"].configure(text=self.t("about"))
         self.ui["settings_button"].configure(text=self.t("settings"))
-        self.update_tab_button_labels()
+        self.update_feature_menu_labels()
+        self.update_selected_feature_label()
         self.import_dmi_button.configure(text=self.t("import_dmi"))
         self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.import_acer_dmi_button.configure(text=self.t("import_acer_dmi"))
