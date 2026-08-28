@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, hp_dmi_label, is_hp_model, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches, unlock_dell_8fc8_password
+from AutoClearME import FirmwareInfo, WinKeyCandidate, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches, unlock_dell_8fc8_password
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -70,6 +70,9 @@ def main() -> int:
     assert version_parts("v1.0.8.1") == (1, 0, 8, 1)
     assert format_version("v1.01") == "1.0.1"
     assert format_version("v1.0.8.1") == "1.0.8.1"
+    winkey_line = format_winkey_candidate(WinKeyCandidate("ACPI MSDM", 0x1234, "JJQTN-6996D-TX6B2-RFVBH-PWF9C", classification="Win 10 RTM Professional OEM:DM, EULA OEM"))
+    assert "Offset: [0x1234, 0x1251]" in winkey_line
+    assert "JJQTN-6996D-TX6B2-RFVBH-PWF9C | Win 10 RTM Professional OEM:DM, EULA OEM" in winkey_line
     bios_samples = {
         "Dell": b"Dell Inc.\x00BIOS Version\x001.32.0\x00CSME 16.1.38.2676\x00",
         "Lenovo": b"LENOVO\x00ThinkPad\x00N3HET76W (1.48 )\x00",

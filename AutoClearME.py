@@ -3232,7 +3232,10 @@ def command_analyze(args: argparse.Namespace) -> int:
 
 def format_winkey_candidate(candidate: WinKeyCandidate) -> str:
     classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
-    return f"  {candidate.key} | {classification}"
+    return (
+        f"  Offset: [0x{candidate.offset:X}, 0x{candidate.offset + candidate.length:X}]\n"
+        f"  {candidate.key} | {classification}"
+    )
 
 
 def command_winkey(args: argparse.Namespace) -> int:
