@@ -502,7 +502,7 @@ class ClearMeGui(DND_ROOT):
             (None, [(0, "single_bios"), (1, "dual_bios"), (2, "merge_bios"), (3, "split_bios")]),
             ("acer_group", [(4, "acer_dmi_tab"), (10, "unlock_acer_tab")]),
             ("asus_group", [(5, "asus_dmi_tab"), (11, "unlock_asus_tab")]),
-            ("dell_group", [(6, "dell_dmi_tab"), (9, "dell_8fc8_unlock_tab"), (13, "dell_pfs_tab")]),
+            ("dell_group", [(13, "dell_pfs_tab"), (6, "dell_dmi_tab"), (9, "dell_8fc8_unlock_tab")]),
             ("hp_group", [(7, "hp_dmi_tab"), (12, "unlock_hp_tab")]),
             ("lenovo_group", [(8, "lenovo_dmi_tab")]),
         ]

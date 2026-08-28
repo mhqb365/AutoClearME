@@ -18,6 +18,14 @@ The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matc
 - Automatically tries the remaining compatible FIT versions if the first one fails
 - Supports both Single BIOS and Dual BIOS workflows
 - Saves the cleaned BIOS next to the original input file with the `_CLEARME` suffix
+- Merges two BIOS files in selected order and trims trailing dump metadata automatically
+- Splits a merged BIOS image by user-entered BIOS 1 and BIOS 2 sizes
+- Finds plaintext Windows product keys and shows their start/end offsets
+- Finds, exports, and imports whole DMI blocks for Acer, ASUS, Dell, HP, and Lenovo
+- Supports vendor BIOS password unlock helpers for Acer, ASUS, HP, and Dell 8FC8
+- Dell 8FC8 unlock can also patch supported dumps to allow Service Tag re-entry
+- Extracts Dell PFS/PKG update images
+- Uses a compact grouped function menu and a resizable control/log layout
 - Opens File Explorer after a successful clear
 - Supports English and Vietnamese UI
 - The release ZIP includes portable Python and required ME Analyzer dependencies
@@ -132,6 +140,14 @@ App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME R
 - Tự động thử các bản FIT phù hợp còn lại nếu bản đầu tiên thất bại
 - Hỗ trợ Single BIOS và Dual BIOS
 - Lưu file BIOS đã clear ngay cạnh file input gốc với hậu tố `_CLEARME`
+- Ghép 2 file BIOS theo đúng thứ tự chọn và tự trim metadata dư ở cuối dump
+- Tách file BIOS đã ghép theo size BIOS 1 và BIOS 2 do người dùng nhập
+- Tìm Windows product key dạng plaintext và hiển thị offset bắt đầu/kết thúc
+- Tìm, xuất và nhập nguyên khối DMI cho Acer, ASUS, Dell, HP và Lenovo
+- Hỗ trợ mở khóa BIOS cho Acer, ASUS, HP và Dell 8FC8
+- Dell 8FC8 có thể patch một số dump để nhập lại Service Tag
+- Trích xuất Dell PFS/PKG update image
+- Giao diện dùng menu chức năng gom theo hãng và có thể kéo chỉnh chiều cao control/log
 - Mở File Explorer sau khi clear thành công
 - Hỗ trợ giao diện tiếng Anh và tiếng Việt
 - File ZIP release đã bao gồm Python portable và thư viện ME Analyzer cần thiết
