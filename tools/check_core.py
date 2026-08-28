@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches
+from AutoClearME import FirmwareInfo, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, hp_dmi_label, is_hp_model, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -156,6 +156,9 @@ def main() -> int:
     dell_model_items = {(item.label, item.value) for item in find_dell_dmi(dell_model_block)}
     assert ("Model", "Inspiron 3505") in dell_model_items
     assert ("Model", "XPS]K") not in dell_model_items
+    assert hp_dmi_label("AAAAA-BBBBB-CCCCC-DDDDD-EEEEE") == "Windows Product Key"
+    assert is_hp_model("HP ProBook 450 G8 Notebook")
+    assert not is_hp_model("HP Linux Installer")
     print("core smoke checks passed")
     return 0
 

@@ -839,6 +839,20 @@ def hp_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
     return blocks
 
 
+def hp_dmi_package_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
+    blocks = hp_dmi_blocks(buffer)
+    used_ranges = [(offset, offset + len(block)) for offset, block in blocks]
+    for candidate in find_winkeys(buffer):
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        block = buffer[start:end]
+        used_ranges.append((start, end))
+        blocks.append((start, block))
+    return blocks
+
+
 def hp_legacy_dmi_blocks(buffer: bytes) -> list[tuple[int, bytes]]:
     blocks = []
     used_ranges: list[tuple[int, int]] = []
@@ -1273,7 +1287,7 @@ def export_lenovo_dmi(source: Path) -> tuple[Path, int]:
 
 
 def export_hp_dmi(source: Path) -> tuple[Path, int]:
-    blocks = hp_dmi_blocks(source.read_bytes())
+    blocks = hp_dmi_package_blocks(source.read_bytes())
     if not blocks:
         raise RuntimeError("HP DMI block was not found.")
     payload = dmi_package_payload("HP", blocks)
@@ -1375,7 +1389,7 @@ def import_dmi_package(target: Path, dmi_package: Path) -> tuple[Path, int, str]
     data = bytearray(target.read_bytes())
     kind_lower = kind.lower()
     if kind_lower == "hp":
-        target_blocks = hp_dmi_blocks(data)
+        target_blocks = hp_dmi_package_blocks(data)
         output_name = hp_dmi_import_output_name(target)
     elif kind_lower == "asus":
         target_blocks = asus_dmi_package_blocks(data)
@@ -1550,7 +1564,7 @@ def is_lenovo_dmi_value(value: str) -> bool:
 def hp_dmi_label(value: str) -> str:
     lower = value.lower()
     if WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
-        return "Windows Key"
+        return "Windows Product Key"
     if "serial" in lower:
         return "Serial Number"
     if "product" in lower:
@@ -1853,13 +1867,13 @@ def is_hp_feature_byte(value: str) -> bool:
 
 
 def hp_preview_items(items: list[LenovoDmiItem]) -> list[LenovoDmiItem]:
-    wanted = {"Model", "Serial Number", "Product ID", "Feature Byte", "Windows Key"}
+    wanted = {"Model", "Serial Number", "Product ID", "Feature Byte", "Windows Product Key"}
     order = {
         "Model": 0,
         "Serial Number": 1,
         "Product ID": 2,
         "Feature Byte": 3,
-        "Windows Key": 4,
+        "Windows Product Key": 4,
     }
     filtered: list[LenovoDmiItem] = []
     seen: set[tuple[str, str]] = set()
@@ -1869,6 +1883,8 @@ def hp_preview_items(items: list[LenovoDmiItem]) -> list[LenovoDmiItem]:
         if item.label == "Serial Number" and not is_hp_serial_number(item.value):
             continue
         if item.label == "Feature Byte" and not is_hp_feature_byte(item.value):
+            continue
+        if item.label == "Model" and not is_hp_model(item.value):
             continue
         key = (item.label, item.value)
         if key in seen:
@@ -1884,6 +1900,15 @@ def is_hp_serial_number(value: str) -> bool:
         and value not in {"BuildId", "FactoryConfig", "HP_MUD"}
         and not re.search(r"setup|config|variable|build|factory", value, re.IGNORECASE)
     )
+
+
+def is_hp_model(value: str) -> bool:
+    lower = value.lower()
+    if not value.startswith("HP "):
+        return False
+    if any(term in lower for term in ("linux installer", "firmware", "uefi", "diagnostic")):
+        return False
+    return True
 
 
 def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
@@ -1904,7 +1929,7 @@ def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
         elif value == "FactoryConfig" and index + 1 < len(values):
             add_unique_dmi_item(items, seen, "Feature Byte", values[index + 1])
     for value in values:
-        if value.startswith("HP "):
+        if is_hp_model(value):
             add_unique_dmi_item(items, seen, "Model", value.removesuffix(" PC"))
         elif re.fullmatch(r"[A-Z0-9]{6,8}#[A-Z0-9]{3}", value):
             add_unique_dmi_item(items, seen, "Product ID", value)
@@ -1922,7 +1947,7 @@ def hp_mud_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
                 add_unique_dmi_item(items, seen, "BIOS ID", value)
                 break
     for candidate in find_winkeys(buffer):
-        add_unique_dmi_item(items, seen, "Windows Key", candidate.key)
+        add_unique_dmi_item(items, seen, "Windows Product Key", candidate.key)
         break
     return hp_preview_items(items)
 
@@ -1951,7 +1976,7 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
                 continue
         if re.fullmatch(r"[A-Z0-9]{10}", value):
             add_unique_dmi_item(items, seen, "Serial Number", value)
-        elif value.startswith("HP ") and "Laptop" in value:
+        elif is_hp_model(value) and ("Laptop" in value or "Book" in value or "Desk" in value or "Workstation" in value):
             add_unique_dmi_item(items, seen, "Model", value)
         elif re.fullmatch(r"[A-Z0-9]{5,8}#[A-Z0-9]{3}", value):
             add_unique_dmi_item(items, seen, "Product ID", value)
@@ -1964,20 +1989,35 @@ def hp_legacy_dmi_items(buffer: bytes) -> list[LenovoDmiItem]:
         elif re.fullmatch(r"[A-Z0-9]{12,16}", value):
             continue
         elif WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")):
-            add_unique_dmi_item(items, seen, "Windows Key", value)
+            add_unique_dmi_item(items, seen, "Windows Product Key", value)
     return hp_preview_items(items)
 
 
 def find_hp_dmi(buffer: bytes) -> list[LenovoDmiItem]:
+    items: list[LenovoDmiItem] = []
+    for _start, _end, block_items in find_hp_dmi_groups(buffer):
+        items.extend(block_items)
+    return items
+
+
+def find_hp_dmi_groups(buffer: bytes) -> list[tuple[int, int, list[LenovoDmiItem]]]:
+    groups: list[tuple[int, int, list[LenovoDmiItem]]] = []
     legacy_items = hp_legacy_dmi_items(buffer)
     if legacy_items:
-        return legacy_items
+        start, block = hp_legacy_dmi_blocks(buffer)[0]
+        groups.append((start, start + len(block), legacy_items))
+        append_hp_winkey_groups(buffer, groups)
+        return groups
     mud_items = hp_mud_dmi_items(buffer)
     if mud_items:
-        return mud_items
+        start, block = hp_mud_blocks(buffer)[0]
+        groups.append((start, start + len(block), mud_items))
+        append_hp_winkey_groups(buffer, groups)
+        return groups
     items: list[LenovoDmiItem] = []
     seen = set()
-    for _offset, block in hp_dmi_blocks(buffer):
+    for offset, block in hp_dmi_blocks(buffer):
+        block_items: list[LenovoDmiItem] = []
         for match in re.findall(rb"[ -~]{3,}", block):
             value = match.decode("ascii", errors="ignore").strip()
             if not value or value in seen:
@@ -1995,8 +2035,33 @@ def find_hp_dmi(buffer: bytes) -> list[LenovoDmiItem]:
             ):
                 continue
             seen.add(value)
-            items.append(LenovoDmiItem(hp_dmi_label(value), value))
-    return hp_preview_items(items)
+            block_items.append(LenovoDmiItem(hp_dmi_label(value), value))
+        block_items = hp_preview_items(block_items)
+        if block_items:
+            groups.append((offset, offset + len(block), block_items))
+            items.extend(block_items)
+    append_hp_winkey_groups(buffer, groups)
+    return groups
+
+
+def append_hp_winkey_groups(buffer: bytes, groups: list[tuple[int, int, list[LenovoDmiItem]]]) -> None:
+    used_ranges = [(start, end) for start, end, _items in groups]
+    seen_keys = {
+        item.value.split(" | ", 1)[0]
+        for _start, _end, items in groups
+        for item in items
+        if item.label == "Windows Product Key"
+    }
+    for candidate in find_winkeys(buffer):
+        if candidate.key in seen_keys:
+            continue
+        classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+        value = f"{candidate.key} | {classification}" if classification else candidate.key
+        start = candidate.offset & ~(0x1000 - 1)
+        end = min(len(buffer), start + 0x1000)
+        if any(start >= used_start and end <= used_end for used_start, used_end in used_ranges):
+            continue
+        groups.append((start, end, [LenovoDmiItem("Windows Product Key", value, candidate.offset, candidate.offset + len(candidate.key))]))
 
 
 def find_winkeys(buffer: bytes) -> list[WinKeyCandidate]:
@@ -3241,12 +3306,14 @@ def command_hp_dmi(args: argparse.Namespace) -> int:
                 print(f"  File does not exist: {log_path_name(path)}", flush=True)
                 failed += 1
                 continue
-            items = find_hp_dmi(path.read_bytes())
-            if not items:
+            groups = find_hp_dmi_groups(path.read_bytes())
+            if not groups:
                 print("  No HP DMI found", flush=True)
                 continue
-            for item in items:
-                print(f"  {item.label}: {item.value}", flush=True)
+            for start, end, items in groups:
+                print(f"  Offset: [0x{start:X}, 0x{end:X}]", flush=True)
+                for item in items:
+                    print(f"  {item.label}: {item.value}", flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Find HP DMI failed: {exc}", flush=True)
