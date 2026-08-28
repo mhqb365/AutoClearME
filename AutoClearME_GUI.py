@@ -17,6 +17,7 @@ import tkinter as tk
 import tempfile
 import urllib.request
 import webbrowser
+import ctypes
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -36,6 +37,7 @@ VERSION_PATH = APP_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
 RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
+APP_USER_MODEL_ID = "mhqb365.AutoClearME"
 
 LANGUAGE_PATH = APP_DIR / "languages.json"
 
@@ -66,6 +68,15 @@ def app_version() -> str:
     return format_version(raw)
 
 
+def set_windows_app_id() -> None:
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
+
+
 def load_language_bundle() -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8-sig"))
     text = data["text"]
@@ -83,6 +94,7 @@ LANG_NAMES = {value: key for key, value in LANG_LABELS.items()}
 
 class ClearMeGui(DND_ROOT):
     def __init__(self) -> None:
+        set_windows_app_id()
         super().__init__()
         self.title(f"Auto Clear ME v{app_version()}")
         if ICON_PATH.exists():
