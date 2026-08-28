@@ -99,6 +99,7 @@ class ClearMeGui(DND_ROOT):
         self.last_oem_dmi_files: list[str] = []
         self.last_oem_dmi_vendor = ""
         self.dell_dmi_warning_shown = False
+        self.dell_8fc8_warning_shown = False
         self.analyzed_signature: tuple[str, ...] = ()
         self.analyzed_detected: dict = {}
         self.rgn_choices: dict[str, str] = {}
@@ -371,6 +372,9 @@ class ClearMeGui(DND_ROOT):
             if self.tabs.tab(tab_index, "text") == self.t("dell_dmi_tab") and not self.dell_dmi_warning_shown:
                 self.dell_dmi_warning_shown = True
                 self.log_info(self.t("dell_dmi_warning"))
+            if self.tabs.tab(tab_index, "text") == self.t("dell_8fc8_unlock_tab") and not self.dell_8fc8_warning_shown:
+                self.dell_8fc8_warning_shown = True
+                self.log_info(self.t("dell_8fc8_warning"))
             self.reset_analysis()
             self.status_var.set(self.t("ready"))
             return

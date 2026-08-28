@@ -44,7 +44,8 @@
       "acer_dmi": "Export Acer DMI",
       "dell_dmi": "Export Dell DMI",
       "extract_dell_pfs": "Extract Dell PFS",
-      "dell_dmi_warning": "Current feature works well on AMD; Intel still needs more testing, please consider when using",
+      "dell_8fc8_warning": "More testing needed, can be used to re-enter Service Tag",
+      "dell_dmi_warning": "More testing needed, please consider when using",
       "clear_me": "Clear ME",
       "log": "Log",
       "save_log": "Save log",
@@ -117,7 +118,7 @@
       "hp_dmi": "Xuất HP DMI",
       "acer_dmi": "Xuất Acer DMI",
       "dell_dmi": "Xuất Dell DMI",
-      "dell_dmi_warning": "Tính năng hiện tại hoạt động tốt trên AMD; Intel vẫn cần nhiều thử nghiệm hơn, vui lòng cân nhắc khi sử dụng",
+      "dell_dmi_warning": "Cần thử nghiệm nhiều hơn",
       "clear_me": "Clear ME",
       "log": "Log",
       "save_log": "Lưu log",
@@ -160,7 +161,8 @@
       "dell_pfs_tab": "Dell PFS",
       "dell_pfs_file": "File .exe",
       "unlock_dell_8fc8": "Mở khóa Dell 8FC8",
-      "extract_dell_pfs": "Extract Dell PFS"
+      "extract_dell_pfs": "Extract Dell PFS",
+      "dell_8fc8_warning": "Cần thử nghiệm nhiều hơn, có thể path để nhập lại Service Tag"
     }
   }
 }

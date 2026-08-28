@@ -178,6 +178,17 @@ def main() -> int:
         output, cleared_ranges = unlock_dell_8fc8_password(unlocked_path)
         assert output is None
         assert cleared_ranges == []
+        service_tag_path = Path(temp_dir) / "service-tag-path.bin"
+        service_tag_path.write_bytes(bytes.fromhex("00 FD AA 31 00 00 00 00 00 00 FF"))
+        output, cleared_ranges = unlock_dell_8fc8_password(service_tag_path)
+        assert output is not None
+        assert output.read_bytes() == bytes.fromhex("00 FD 00 31 00 00 00 00 00 00 FF")
+        assert cleared_ranges == [(2, 1)]
+        service_tag_unlocked_path = Path(temp_dir) / "service-tag-path-unlocked.bin"
+        service_tag_unlocked_path.write_bytes(bytes.fromhex("00 FD 00 31 00 00 00 00 00 00 FF"))
+        output, cleared_ranges = unlock_dell_8fc8_password(service_tag_unlocked_path)
+        assert output is None
+        assert cleared_ranges == []
     assert hp_dmi_label("AAAAA-BBBBB-CCCCC-DDDDD-EEEEE") == "Windows Product Key"
     assert is_hp_model("HP ProBook 450 G8 Notebook")
     assert not is_hp_model("HP Linux Installer")

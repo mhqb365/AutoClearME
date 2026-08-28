@@ -67,6 +67,7 @@ DELL_MODEL_BYTES_PATTERN = re.compile(rb"\$?(?:Inspiron|Vostro|Latitude|Precisio
 DELL_8FC8_UNLOCK_SIGNATURES = (
     bytes.fromhex("00 FD AA 30 00 00 00 00 04 00 FF"),
     bytes.fromhex("00 FC AA 31 00 00 00 00 04 00 FF"),
+    bytes.fromhex("00 FD AA 31 00 00 00 00 00 00 FF"),
 )
 DELL_8FC8_UNLOCKED_SIGNATURES = tuple(signature[:2] + b"\x00" + signature[3:] for signature in DELL_8FC8_UNLOCK_SIGNATURES)
 
@@ -2608,7 +2609,7 @@ def asus_unlock_output_name(source: Path) -> Path:
 
 def dell_8fc8_unlock_output_name(source: Path) -> Path:
     suffix = source.suffix or ".bin"
-    return unique_output_path(source.with_name(f"{source.stem}_8FC8_UNLOCKED{suffix}"))
+    return unique_output_path(source.with_name(f"{source.stem}_UNLOCKED{suffix}"))
 
 
 def has_password_payload(region: bytes | bytearray) -> bool:
@@ -2742,7 +2743,7 @@ def unlock_dell_8fc8_password(source: Path) -> tuple[Path | None, list[tuple[int
                 cleared_ranges.append((patch_offset, 1))
             marker_offset = data.find(signature, marker_offset + len(signature))
     if not signatures_found:
-        if all(signature in data for signature in DELL_8FC8_UNLOCKED_SIGNATURES):
+        if any(signature in data for signature in DELL_8FC8_UNLOCKED_SIGNATURES):
             return None, []
         raise RuntimeError("Dell 8FC8 lock signature was not found. This file may not use the supported 8FC8 layout.")
     if not cleared_ranges:
