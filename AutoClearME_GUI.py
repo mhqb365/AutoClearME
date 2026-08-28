@@ -127,6 +127,16 @@ class ClearMeGui(DND_ROOT):
             "input": tk.StringVar(),
             "dual_file1": tk.StringVar(),
             "dual_file2": tk.StringVar(),
+            "merge_bios1": tk.StringVar(),
+            "merge_bios2": tk.StringVar(),
+            "split_bios_input": tk.StringVar(),
+            "split_bios1_size": tk.StringVar(value="8MB"),
+            "split_bios2_size": tk.StringVar(value="8MB"),
+            "oem_dmi_vendor": tk.StringVar(value="Acer"),
+            "oem_dmi_target": tk.StringVar(),
+            "oem_dmi_package": tk.StringVar(),
+            "unlock_vendor": tk.StringVar(value="Dell 8FC8"),
+            "unlock_bios_input": tk.StringVar(),
             "asus_dmi_package": tk.StringVar(),
             "asus_dmi_target": tk.StringVar(),
             "dmi_package": tk.StringVar(),
@@ -164,6 +174,7 @@ class ClearMeGui(DND_ROOT):
         style.configure("Control.TEntry", padding=(2, 2, 2, 2))
         style.configure("Control.TCombobox", padding=(3, 3, 3, 3))
         style.configure("Control.TButton", padding=(3, 1, 3, 1))
+        style.layout("HiddenTabs.TNotebook.Tab", [])
 
         header = ttk.Frame(self, padding=(18, 16, 18, 8))
         header.grid(row=0, column=0, sticky="ew")
@@ -187,9 +198,13 @@ class ClearMeGui(DND_ROOT):
         self.ui["bios_files_frame"] = form
         form.grid(row=0, column=0, sticky="ew")
         form.columnconfigure(1, weight=1)
-        tabs = ttk.Notebook(form)
-        tabs.grid(row=0, column=0, columnspan=4, sticky="ew")
+        tab_bar = ttk.Frame(form)
+        tab_bar.grid(row=0, column=0, columnspan=4, sticky="ew")
+        tabs = ttk.Notebook(form, style="HiddenTabs.TNotebook")
+        tabs.grid(row=1, column=0, columnspan=4, sticky="ew")
         tabs.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        self.tab_bar = tab_bar
+        self.tab_buttons: list[ttk.Button] = []
 
         single_tab = ttk.Frame(tabs, padding=10)
         single_tab.columnconfigure(1, weight=1)
@@ -206,39 +221,51 @@ class ClearMeGui(DND_ROOT):
         self.select_row(dual_tab, 3, "fit", "fit_choice")
         tabs.add(dual_tab, text="")
 
-        asus_dmi_tab = self.build_dmi_import_tab(
-            tabs,
-            "asus_dmi_target",
-            "asus_dmi_package",
-            self.start_import_asus_dmi,
-            self.start_find_asus_dmi,
-        )
+        merge_tab = ttk.Frame(tabs, padding=10)
+        merge_tab.columnconfigure(1, weight=1)
+        self.path_row(merge_tab, 0, "bios_file_1", "merge_bios1", self.pick_input, clearable=True)
+        self.path_row(merge_tab, 1, "bios_file_2", "merge_bios2", self.pick_input, clearable=True)
+        merge_actions = ttk.Frame(merge_tab)
+        merge_actions.grid(row=2, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        self.merge_bios_button = ttk.Button(merge_actions, command=self.start_merge_bios)
+        self.merge_bios_button.grid(row=0, column=0)
+        tabs.add(merge_tab, text="")
+
+        split_tab = ttk.Frame(tabs, padding=10)
+        split_tab.columnconfigure(1, weight=1)
+        self.path_row(split_tab, 0, "merged_bios_file", "split_bios_input", self.pick_input, clearable=True)
+        self.entry_row(split_tab, 1, "bios1_size", "split_bios1_size")
+        self.entry_row(split_tab, 2, "bios2_size", "split_bios2_size")
+        split_actions = ttk.Frame(split_tab)
+        split_actions.grid(row=3, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        self.split_bios_button = ttk.Button(split_actions, command=self.start_split_bios)
+        self.split_bios_button.grid(row=0, column=0)
+        tabs.add(split_tab, text="")
+
+        acer_dmi_tab = self.build_dmi_import_tab(tabs, "acer_dmi_target", "acer_dmi_package", self.start_import_acer_dmi, self.start_find_acer_dmi)
+        self.import_acer_dmi_button = acer_dmi_tab.import_button
+        self.acer_dmi_button = acer_dmi_tab.find_button
+        tabs.add(acer_dmi_tab, text="")
+
+        asus_dmi_tab = self.build_dmi_import_tab(tabs, "asus_dmi_target", "asus_dmi_package", self.start_import_asus_dmi, self.start_find_asus_dmi)
         self.import_asus_dmi_button = asus_dmi_tab.import_button
         self.asus_dmi_button = asus_dmi_tab.find_button
         tabs.add(asus_dmi_tab, text="")
 
-        acer_dmi_tab = self.build_dmi_import_tab(
-            tabs,
-            "acer_dmi_target",
-            "acer_dmi_package",
-            self.start_import_acer_dmi,
-            self.start_find_acer_dmi,
-        )
-        self.import_acer_dmi_button = acer_dmi_tab.import_button
-        self.acer_dmi_button = acer_dmi_tab.find_button
-        tabs.add(acer_dmi_tab, text="")
-        tabs.insert(2, acer_dmi_tab)
-
-        dell_dmi_tab = self.build_dmi_import_tab(
-            tabs,
-            "dell_dmi_target",
-            "dell_dmi_package",
-            self.start_import_dell_dmi,
-            self.start_find_dell_dmi,
-        )
+        dell_dmi_tab = self.build_dmi_import_tab(tabs, "dell_dmi_target", "dell_dmi_package", self.start_import_dell_dmi, self.start_find_dell_dmi)
         self.import_dell_dmi_button = dell_dmi_tab.import_button
         self.dell_dmi_button = dell_dmi_tab.find_button
         tabs.add(dell_dmi_tab, text="")
+
+        hp_dmi_tab = self.build_dmi_import_tab(tabs, "hp_dmi_target", "hp_dmi_package", self.start_import_hp_dmi, self.start_find_hp_dmi)
+        self.import_hp_dmi_button = hp_dmi_tab.import_button
+        self.hp_dmi_button = hp_dmi_tab.find_button
+        tabs.add(hp_dmi_tab, text="")
+
+        lenovo_dmi_tab = self.build_dmi_import_tab(tabs, "dmi_target", "dmi_package", self.start_import_lenovo_dmi, self.start_find_lenovo_dmi)
+        self.import_dmi_button = lenovo_dmi_tab.import_button
+        self.lenovo_dmi_button = lenovo_dmi_tab.find_button
+        tabs.add(lenovo_dmi_tab, text="")
 
         dell_8fc8_tab = ttk.Frame(tabs, padding=10)
         dell_8fc8_tab.columnconfigure(1, weight=1)
@@ -249,6 +276,10 @@ class ClearMeGui(DND_ROOT):
         self.dell_8fc8_button.grid(row=0, column=0)
         tabs.add(dell_8fc8_tab, text="")
 
+        self.unlock_acer_tab_button = self.build_unlock_tab(tabs, "ACER", self.start_unlock_acer)
+        self.unlock_asus_tab_button = self.build_unlock_tab(tabs, "ASUS", self.start_unlock_asus)
+        self.unlock_hp_tab_button = self.build_unlock_tab(tabs, "HP", self.start_unlock_hp)
+
         dell_pfs_tab = ttk.Frame(tabs, padding=10)
         dell_pfs_tab.columnconfigure(1, weight=1)
         self.path_row(dell_pfs_tab, 0, "dell_pfs_file", "dell_pfs_input", self.pick_dell_pfs_input, clearable=True)
@@ -257,46 +288,22 @@ class ClearMeGui(DND_ROOT):
         self.dell_pfs_button = ttk.Button(dell_pfs_actions, command=self.start_dell_pfs_extract)
         self.dell_pfs_button.grid(row=0, column=0)
         tabs.add(dell_pfs_tab, text="")
-
-        hp_dmi_tab = self.build_dmi_import_tab(
-            tabs,
-            "hp_dmi_target",
-            "hp_dmi_package",
-            self.start_import_hp_dmi,
-            self.start_find_hp_dmi,
-        )
-        self.import_hp_dmi_button = hp_dmi_tab.import_button
-        self.hp_dmi_button = hp_dmi_tab.find_button
-        tabs.add(hp_dmi_tab, text="")
-
-        dmi_tab = self.build_dmi_import_tab(
-            tabs,
-            "dmi_target",
-            "dmi_package",
-            self.start_import_lenovo_dmi,
-            self.start_find_lenovo_dmi,
-        )
-        self.import_dmi_button = dmi_tab.import_button
-        self.lenovo_dmi_button = dmi_tab.find_button
-        tabs.add(dmi_tab, text="")
         self.tabs = tabs
+        self.rebuild_tab_bar()
+        self.unlock_acer_button = self.unlock_acer_tab_button
+        self.unlock_asus_button = self.unlock_asus_tab_button
+        self.unlock_hp_button = self.unlock_hp_tab_button
 
         actions = ttk.Frame(form)
         self.main_actions = actions
-        actions.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(12, 0))
+        actions.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(12, 0))
         actions.columnconfigure(0, weight=1)
         action_buttons = ttk.Frame(actions)
         action_buttons.grid(row=0, column=0, sticky="")
-        self.unlock_acer_button = ttk.Button(action_buttons, command=self.start_unlock_acer)
-        self.unlock_acer_button.grid(row=0, column=0, padx=(0, 8), pady=(0, 4))
-        self.unlock_asus_button = ttk.Button(action_buttons, command=self.start_unlock_asus)
-        self.unlock_asus_button.grid(row=0, column=1, padx=(0, 8), pady=(0, 4))
-        self.unlock_hp_button = ttk.Button(action_buttons, command=self.start_unlock_hp)
-        self.unlock_hp_button.grid(row=0, column=2, padx=(0, 8), pady=(0, 4))
         self.winkey_button = ttk.Button(action_buttons, command=self.start_find_winkey)
-        self.winkey_button.grid(row=0, column=3, padx=(0, 8), pady=(0, 4))
+        self.winkey_button.grid(row=0, column=0, padx=(0, 8), pady=(0, 4))
         self.clear_button = ttk.Button(action_buttons, command=self.start_clear)
-        self.clear_button.grid(row=0, column=4, padx=(0, 8), pady=(0, 4))
+        self.clear_button.grid(row=0, column=1, padx=(0, 8), pady=(0, 4))
         self.status_var = tk.StringVar(value="")
         status_bar = ttk.Frame(actions)
         status_bar.grid(row=1, column=0, sticky="ew", pady=(8, 0))
@@ -346,6 +353,22 @@ class ClearMeGui(DND_ROOT):
                 row=row, column=3, sticky="ew", padx=(6, 0), pady=3
             )
 
+    def entry_row(self, parent: ttk.Frame, row: int, label_key: str, key: str) -> None:
+        parent.rowconfigure(row, minsize=self.control_row_height)
+        label = ttk.Label(parent)
+        label.grid(row=row, column=0, sticky="w", pady=4)
+        self.translatable_labels.append((label, label_key))
+        entry = ttk.Entry(parent, textvariable=self.vars[key], style="Control.TEntry")
+        entry.grid(row=row, column=1, columnspan=3, sticky="ew", padx=8, pady=3)
+
+    def select_values_row(self, parent: ttk.Frame, row: int, label_key: str, key: str, values: tuple[str, ...]) -> None:
+        parent.rowconfigure(row, minsize=self.control_row_height)
+        label = ttk.Label(parent)
+        label.grid(row=row, column=0, sticky="w", pady=4)
+        self.translatable_labels.append((label, label_key))
+        combo = ttk.Combobox(parent, textvariable=self.vars[key], values=values, state="readonly", style="Control.TCombobox")
+        combo.grid(row=row, column=1, columnspan=3, sticky="ew", padx=8, pady=3)
+
     def build_dmi_import_tab(self, tabs: ttk.Notebook, target_key: str, package_key: str, import_command, find_command) -> ttk.Frame:
         tab = ttk.Frame(tabs, padding=10)
         tab.columnconfigure(1, weight=1)
@@ -358,6 +381,20 @@ class ClearMeGui(DND_ROOT):
         tab.import_button = ttk.Button(actions, command=import_command)
         tab.import_button.grid(row=0, column=1)
         return tab
+
+    def build_unlock_tab(self, tabs: ttk.Notebook, vendor: str, command) -> ttk.Button:
+        tab = ttk.Frame(tabs, padding=10)
+        tab.columnconfigure(1, weight=1)
+        key = f"unlock_{vendor.lower()}_input"
+        if key not in self.vars:
+            self.vars[key] = tk.StringVar()
+        self.path_row(tab, 0, "bios_file", key, self.pick_input, clearable=True)
+        actions = ttk.Frame(tab)
+        actions.grid(row=1, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        button = ttk.Button(actions, command=command)
+        button.grid(row=0, column=0)
+        tabs.add(tab, text=vendor)
+        return button
 
     def select_row(self, parent: ttk.Frame, row: int, label_key: str, key: str) -> None:
         parent.rowconfigure(row, minsize=self.control_row_height)
@@ -377,14 +414,17 @@ class ClearMeGui(DND_ROOT):
             self.dual_fit_combo = combo
 
     def on_tab_changed(self, _event=None) -> None:
+        if not hasattr(self, "tabs"):
+            return
         tab_index = self.tabs.index("current")
+        self.update_tab_button_states()
         if tab_index >= 2:
             self.show_main_actions(False)
             self.update_tabs_height()
-            if self.tabs.tab(tab_index, "text") == self.t("dell_dmi_tab") and not self.dell_dmi_warning_shown:
+            if tab_index == 6 and not self.dell_dmi_warning_shown:
                 self.dell_dmi_warning_shown = True
                 self.log_info(self.t("dell_dmi_warning"))
-            if self.tabs.tab(tab_index, "text") == self.t("dell_8fc8_unlock_tab") and not self.dell_8fc8_warning_shown:
+            if tab_index == 9 and not self.dell_8fc8_warning_shown:
                 self.dell_8fc8_warning_shown = True
                 self.log_info(self.t("dell_8fc8_warning"))
             self.reset_analysis()
@@ -412,6 +452,52 @@ class ClearMeGui(DND_ROOT):
         current.update_idletasks()
         self.tabs.configure(height=current.winfo_reqheight())
 
+    def rebuild_tab_bar(self) -> None:
+        self.feature_tab_keys = [
+            "single_bios",
+            "dual_bios",
+            "merge_bios",
+            "split_bios",
+            "acer_dmi_tab",
+            "asus_dmi_tab",
+            "dell_dmi_tab",
+            "hp_dmi_tab",
+            "lenovo_dmi_tab",
+            "dell_8fc8_unlock_tab",
+            "unlock_acer_tab",
+            "unlock_asus_tab",
+            "unlock_hp_tab",
+            "dell_pfs_tab",
+        ]
+        for child in self.tab_bar.winfo_children():
+            child.destroy()
+        self.tab_buttons = []
+        for index, key in enumerate(self.feature_tab_keys):
+            button = ttk.Button(
+                self.tab_bar,
+                command=lambda selected=index: self.select_feature_tab(selected),
+                style="Control.TButton",
+            )
+            button.grid(row=index // 7, column=index % 7, sticky="ew", padx=(0, 4), pady=(0, 4))
+            self.tab_bar.columnconfigure(index % 7, weight=1)
+            self.tab_buttons.append(button)
+        self.update_tab_button_labels()
+        self.update_tab_button_states()
+
+    def select_feature_tab(self, index: int) -> None:
+        self.tabs.select(index)
+
+    def update_tab_button_labels(self) -> None:
+        for button, key in zip(self.tab_buttons, self.feature_tab_keys):
+            button.configure(text=self.t(key))
+
+    def update_tab_button_states(self) -> None:
+        if not hasattr(self, "tab_buttons"):
+            return
+        current = self.tabs.index("current")
+        for index, button in enumerate(self.tab_buttons):
+            button.configure(state="disabled" if index == current else "normal")
+
     def t(self, key: str) -> str:
         lang = LANG_LABELS.get(self.lang_var.get(), "en")
         return TEXT.get(lang, TEXT["en"]).get(key, TEXT["en"].get(key, key))
@@ -425,15 +511,7 @@ class ClearMeGui(DND_ROOT):
         self.ui["about_button"].configure(text=self.t("about"))
         self.ui["settings_button"].configure(text=self.t("settings"))
         self.ui["bios_files_frame"].configure(text=self.t("bios_files"))
-        self.tabs.tab(0, text=self.t("single_bios"))
-        self.tabs.tab(1, text=self.t("dual_bios"))
-        self.tabs.tab(2, text=self.t("acer_dmi_tab"))
-        self.tabs.tab(3, text=self.t("asus_dmi_tab"))
-        self.tabs.tab(4, text=self.t("dell_dmi_tab"))
-        self.tabs.tab(5, text=self.t("dell_8fc8_unlock_tab"))
-        self.tabs.tab(6, text=self.t("dell_pfs_tab"))
-        self.tabs.tab(7, text=self.t("hp_dmi_tab"))
-        self.tabs.tab(8, text=self.t("lenovo_dmi_tab"))
+        self.update_tab_button_labels()
         self.import_dmi_button.configure(text=self.t("import_dmi"))
         self.import_hp_dmi_button.configure(text=self.t("import_hp_dmi"))
         self.import_acer_dmi_button.configure(text=self.t("import_acer_dmi"))
@@ -443,12 +521,12 @@ class ClearMeGui(DND_ROOT):
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.unlock_acer_button.configure(text=self.t("unlock_acer"))
         self.unlock_hp_button.configure(text=self.t("unlock_hp"))
-        self.asus_dmi_button.configure(text=self.t("asus_dmi"))
-        self.lenovo_dmi_button.configure(text=self.t("lenovo_dmi"))
-        self.hp_dmi_button.configure(text=self.t("hp_dmi"))
-        self.acer_dmi_button.configure(text=self.t("acer_dmi"))
-        self.dell_dmi_button.configure(text=self.t("dell_dmi"))
+        self.merge_bios_button.configure(text=self.t("merge_bios"))
+        self.split_bios_button.configure(text=self.t("split_bios"))
         self.dell_8fc8_button.configure(text=self.t("unlock_dell_8fc8"))
+        self.unlock_acer_tab_button.configure(text=self.t("unlock_acer"))
+        self.unlock_asus_tab_button.configure(text=self.t("unlock_asus"))
+        self.unlock_hp_tab_button.configure(text=self.t("unlock_hp"))
         self.dell_pfs_button.configure(text=self.t("extract_dell_pfs"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["log_frame"].configure(text=self.t("log"))
@@ -782,6 +860,31 @@ class ClearMeGui(DND_ROOT):
     def start_find_winkey(self) -> None:
         self.start_find_info("Win Key", "winkey", self.winkey_button, "WINKEY_DONE")
 
+    def start_merge_bios(self) -> None:
+        file1 = self.input_path("merge_bios1")
+        file2 = self.input_path("merge_bios2")
+        if not file1 or not file2:
+            self.log_info("Merge BIOS skipped: please select BIOS 1 and BIOS 2")
+            return
+        self.merge_bios_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_result = ""
+        cmd = self.engine_cmd("merge-bios", "--file1", file1, "--file2", file2)
+        self.start_command(cmd, "BIOS_TOOL_DONE")
+
+    def start_split_bios(self) -> None:
+        source = self.input_path("split_bios_input")
+        bios1_size = self.vars["split_bios1_size"].get().strip()
+        bios2_size = self.vars["split_bios2_size"].get().strip()
+        if not source or not bios1_size or not bios2_size:
+            self.log_info("Split BIOS skipped: please select merged BIOS and enter BIOS 1/2 sizes")
+            return
+        self.split_bios_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_result = ""
+        cmd = self.engine_cmd("split-bios", "--input", source, "--bios1-size", bios1_size, "--bios2-size", bios2_size)
+        self.start_command(cmd, "BIOS_TOOL_DONE")
+
     def start_find_lenovo_dmi(self) -> None:
         self.start_find_oem_dmi("Lenovo", "lenovo-dmi", "dmi_target", self.lenovo_dmi_button, "LENOVO_DMI_DONE")
 
@@ -796,6 +899,27 @@ class ClearMeGui(DND_ROOT):
 
     def start_find_dell_dmi(self) -> None:
         self.start_find_oem_dmi("Dell", "dell-dmi", "dell_dmi_target", self.dell_dmi_button, "DELL_DMI_DONE")
+
+    def selected_dmi_config(self) -> tuple[str, str, str, str]:
+        configs = {
+            "Acer": ("Acer", "acer-dmi", "ACER_DMI_DONE", "acer-dmi-import"),
+            "Asus": ("ASUS", "asus-dmi", "ASUS_DMI_DONE", "asus-dmi-import"),
+            "Dell": ("Dell", "dell-dmi", "DELL_DMI_DONE", "dell-dmi-import"),
+            "HP": ("HP", "hp-dmi", "HP_DMI_DONE", "hp-dmi-import"),
+            "Lenovo": ("Lenovo", "lenovo-dmi", "LENOVO_DMI_DONE", "lenovo-dmi-import"),
+        }
+        return configs.get(self.vars["oem_dmi_vendor"].get().strip(), configs["Acer"])
+
+    def start_find_selected_dmi(self) -> None:
+        vendor, command, done_tag, _import_command = self.selected_dmi_config()
+        if vendor == "Dell" and not self.dell_dmi_warning_shown:
+            self.dell_dmi_warning_shown = True
+            self.log_info(self.t("dell_dmi_warning"))
+        self.start_find_oem_dmi(vendor, command, "oem_dmi_target", self.oem_dmi_button, done_tag)
+
+    def start_import_selected_dmi(self) -> None:
+        vendor, _command, _done_tag, import_command = self.selected_dmi_config()
+        self.start_import_dmi(vendor, "oem_dmi_package", "oem_dmi_target", self.import_oem_dmi_button, import_command)
 
     def start_dell_pfs_extract(self) -> None:
         source = self.input_path("dell_pfs_input")
@@ -830,7 +954,7 @@ class ClearMeGui(DND_ROOT):
     def start_import_dell_dmi(self) -> None:
         self.start_import_dmi("Dell", "dell_dmi_package", "dell_dmi_target", self.import_dell_dmi_button)
 
-    def start_import_dmi(self, vendor: str, package_key: str, target_key: str, button: ttk.Button) -> None:
+    def start_import_dmi(self, vendor: str, package_key: str, target_key: str, button: ttk.Button, command: str | None = None) -> None:
         package = self.input_path(package_key)
         target = self.input_path(target_key)
         missing = []
@@ -845,7 +969,13 @@ class ClearMeGui(DND_ROOT):
         self.status_var.set(self.t("running"))
         self.last_dmi_transfer_result = ""
         self.last_oem_dmi_vendor = vendor
-        cmd = self.engine_cmd("lenovo-dmi-import", "--dmi", package, "--target", target)
+        command = command or {
+            "ASUS": "asus-dmi-import",
+            "HP": "hp-dmi-import",
+            "Acer": "acer-dmi-import",
+            "Dell": "dell-dmi-import",
+        }.get(vendor, "lenovo-dmi-import")
+        cmd = self.engine_cmd(command, "--dmi", package, "--target", target)
         self.start_command(cmd, "DMI_IMPORT_DONE")
 
     def start_export_checked_lenovo_dmi(self) -> None:
@@ -888,13 +1018,35 @@ class ClearMeGui(DND_ROOT):
         self.start_command(cmd, done_tag)
 
     def start_unlock_asus(self) -> None:
-        self.start_unlock_vendor("ASUS", "unlock-asus", self.unlock_asus_button, "UNLOCK_ASUS_DONE")
+        self.start_unlock_vendor("ASUS", "unlock-asus", getattr(self, "unlock_asus_tab_button", self.unlock_asus_button), "UNLOCK_ASUS_DONE", "unlock_asus_input")
 
     def start_unlock_acer(self) -> None:
-        self.start_unlock_vendor("ACER", "unlock-acer", self.unlock_acer_button, "UNLOCK_ACER_DONE")
+        self.start_unlock_vendor("ACER", "unlock-acer", getattr(self, "unlock_acer_tab_button", self.unlock_acer_button), "UNLOCK_ACER_DONE", "unlock_acer_input")
 
     def start_unlock_hp(self) -> None:
-        self.start_unlock_vendor("HP", "unlock-hp", self.unlock_hp_button, "UNLOCK_HP_DONE")
+        self.start_unlock_vendor("HP", "unlock-hp", getattr(self, "unlock_hp_tab_button", self.unlock_hp_button), "UNLOCK_HP_DONE", "unlock_hp_input")
+
+    def start_unlock_selected(self) -> None:
+        source = self.input_path("unlock_bios_input")
+        if not source:
+            self.log_info("Unlock skipped: please select BIOS file first")
+            return
+        configs = {
+            "ACER": ("ACER", "unlock-acer", "UNLOCK_ACER_DONE"),
+            "ASUS": ("ASUS", "unlock-asus", "UNLOCK_ASUS_DONE"),
+            "HP": ("HP", "unlock-hp", "UNLOCK_HP_DONE"),
+            "Dell 8FC8": ("Dell 8FC8", "unlock-dell-8fc8", "UNLOCK_DELL_8FC8_DONE"),
+        }
+        vendor, command, done_tag = configs.get(self.vars["unlock_vendor"].get().strip(), configs["Dell 8FC8"])
+        if vendor == "Dell 8FC8" and not self.dell_8fc8_warning_shown:
+            self.dell_8fc8_warning_shown = True
+            self.log_info(self.t("dell_8fc8_warning"))
+        self.unlock_selected_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_unlock_result = ""
+        self.last_unlock_files = [source]
+        cmd = self.engine_cmd(command, "--input", source)
+        self.start_command(cmd, done_tag)
 
     def start_unlock_dell_8fc8(self) -> None:
         source = self.input_path("dell_8fc8_input")
@@ -908,8 +1060,12 @@ class ClearMeGui(DND_ROOT):
         cmd = self.engine_cmd("unlock-dell-8fc8", "--input", source)
         self.start_command(cmd, "UNLOCK_DELL_8FC8_DONE")
 
-    def start_unlock_vendor(self, vendor: str, command: str, button: ttk.Button, done_tag: str) -> None:
-        files = self.selected_bios_files()
+    def start_unlock_vendor(self, vendor: str, command: str, button: ttk.Button, done_tag: str, input_key: str | None = None) -> None:
+        if input_key:
+            source = self.input_path(input_key)
+            files = [source] if source.strip() else []
+        else:
+            files = self.selected_bios_files()
         if not files:
             self.log_info(f"Unlock {vendor} skipped: please select file(s) first")
             return
@@ -1031,6 +1187,9 @@ class ClearMeGui(DND_ROOT):
             elif done_tag == "DELL_PFS_DONE":
                 self.last_result += line
                 self.queue.put(line)
+            elif done_tag == "BIOS_TOOL_DONE":
+                self.last_result += line
+                self.queue.put(line)
             elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE", "UNLOCK_DELL_8FC8_DONE"}:
                 self.last_unlock_result += line
                 self.queue.put(line)
@@ -1140,6 +1299,9 @@ class ClearMeGui(DND_ROOT):
         if tag == "DELL_PFS_DONE":
             self.handle_dell_pfs_done(code)
             return
+        if tag == "BIOS_TOOL_DONE":
+            self.handle_bios_tool_done(code)
+            return
         self.handle_clear_done(code)
 
     def restore_action_buttons(self) -> None:
@@ -1149,6 +1311,8 @@ class ClearMeGui(DND_ROOT):
             self.unlock_asus_button,
             self.unlock_acer_button,
             self.unlock_hp_button,
+            self.merge_bios_button,
+            self.split_bios_button,
             self.dell_8fc8_button,
             self.asus_dmi_button,
             self.lenovo_dmi_button,
@@ -1193,7 +1357,7 @@ class ClearMeGui(DND_ROOT):
         outputs = self.dmi_transfer_outputs()
         if outputs:
             self.status_var.set(self.t("export_complete"))
-            package_key = {
+            package_key = "oem_dmi_package" if "oem_dmi_package" in self.vars else {
                 "ASUS": "asus_dmi_package",
                 "HP": "hp_dmi_package",
                 "Acer": "acer_dmi_package",
@@ -1229,6 +1393,31 @@ class ClearMeGui(DND_ROOT):
                 candidate = source.with_name(name)
                 if candidate.exists():
                     outputs.append(candidate)
+        self.open_output_location(outputs)
+
+    def handle_bios_tool_done(self, code: int) -> None:
+        self.merge_bios_button.configure(state="normal")
+        self.split_bios_button.configure(state="normal")
+        self.status_var.set(self.t("export_complete") if code == 0 else self.t("error"))
+        if code != 0:
+            self.log_error(f"BIOS tool stopped with exit code {code}.")
+            return
+        outputs = []
+        source_dirs = [
+            self.input_path("merge_bios1"),
+            self.input_path("merge_bios2"),
+            self.input_path("split_bios_input"),
+        ]
+        for line in self.last_result.splitlines():
+            if line.strip().startswith("Output:"):
+                name = line.split(":", 1)[1].strip()
+                for source in source_dirs:
+                    if not source:
+                        continue
+                    candidate = Path(source).resolve().with_name(name)
+                    if candidate.exists():
+                        outputs.append(candidate)
+                        break
         self.open_output_location(outputs)
 
     def handle_unlock_done(self, code: int, button: ttk.Button, vendor: str) -> None:

@@ -2543,6 +2543,18 @@ def parse_size(value: str | None) -> int | None:
     return size
 
 
+def parse_bios_mb_size(value: str | None) -> int:
+    if not value or not value.strip():
+        raise ValueError("BIOS size is required.")
+    text = value.strip().lower().replace(" ", "")
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        text += "mb"
+    size = parse_size(text)
+    if size is None:
+        raise ValueError("BIOS size is required.")
+    return size
+
+
 VALID_BIOS_SIZES = [
     512 * 1024,        # 512 KB
     1 * 1024 * 1024,   # 1 MB
@@ -2803,6 +2815,55 @@ def merge_dual_inputs(file1: Path, file2: Path, out_root: Path) -> tuple[Path, i
         out.write(data1)
         out.write(data2)
     return merged, len(data1)
+
+
+def bios_size_label(size: int) -> str:
+    mb = 1024 * 1024
+    if size % mb == 0:
+        return f"{size // mb}MB"
+    return f"{size}B"
+
+
+def merged_bios_output_name(total_size: int, out_root: Path) -> Path:
+    return unique_output_path(out_root / f"{bios_size_label(total_size)}_MERGED.bin")
+
+
+def split_bios_output_names(source: Path, out_root: Path) -> tuple[Path, Path]:
+    suffix = source.suffix or ".bin"
+    chip1 = unique_output_path(out_root / f"{source.stem}_BIOS1{suffix}")
+    chip2 = unique_output_path(out_root / f"{source.stem}_BIOS2{suffix}")
+    return chip1, chip2
+
+
+def merge_bios_files(file1: Path, file2: Path, out_root: Path | None = None) -> tuple[Path, list[tuple[Path, int, int]]]:
+    output_root = out_root or file1.parent
+    output_root.mkdir(parents=True, exist_ok=True)
+    data1, excess1 = trim_bios_data(file1.read_bytes())
+    data2, excess2 = trim_bios_data(file2.read_bytes())
+    output = merged_bios_output_name(len(data1) + len(data2), output_root)
+    output.write_bytes(bytes(data1) + bytes(data2))
+    return output, [(file1, len(data1), excess1), (file2, len(data2), excess2)]
+
+
+def split_bios_file(source: Path, bios1_size: int, bios2_size: int, out_root: Path | None = None) -> tuple[Path, Path, int]:
+    output_root = out_root or source.parent
+    output_root.mkdir(parents=True, exist_ok=True)
+    data = source.read_bytes()
+    expected_size = bios1_size + bios2_size
+    excess = 0
+    if len(data) != expected_size:
+        trimmed, trimmed_excess = trim_bios_data(data)
+        if len(trimmed) == expected_size:
+            data = bytes(trimmed)
+            excess = trimmed_excess
+    if len(data) != expected_size:
+        raise ValueError(
+            f"Input size {len(data)} bytes does not match BIOS 1 + BIOS 2 size {expected_size} bytes."
+        )
+    chip1, chip2 = split_bios_output_names(source, output_root)
+    chip1.write_bytes(data[:bios1_size])
+    chip2.write_bytes(data[bios1_size:])
+    return chip1, chip2, excess
 
 
 def cleanup_job(workdir: Path) -> None:
@@ -3579,6 +3640,51 @@ def command_unlock_dell_8fc8(args: argparse.Namespace) -> int:
     return 0 if failed == 0 else 2
 
 
+def command_merge_bios(args: argparse.Namespace) -> int:
+    file1 = Path(args.file1).resolve()
+    file2 = Path(args.file2).resolve()
+    print(f"[INFO] Merging BIOS: {log_path_name(file1)} + {log_path_name(file2)}", flush=True)
+    try:
+        if not file1.exists():
+            raise FileNotFoundError(f"BIOS 1 does not exist: {log_path_name(file1)}")
+        if not file2.exists():
+            raise FileNotFoundError(f"BIOS 2 does not exist: {log_path_name(file2)}")
+        out_root = Path(args.out).resolve() if args.out else file1.parent
+        output, inputs = merge_bios_files(file1, file2, out_root)
+        for source, size, excess in inputs:
+            if excess:
+                print(f"  Trim: {log_path_name(source)} removed {excess} bytes, size={size}", flush=True)
+            else:
+                print(f"  Size: {log_path_name(source)} = {size}", flush=True)
+        print(f"  Output: {log_path_name(output)}", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"  Merge BIOS failed: {exc}", flush=True)
+        return 2
+
+
+def command_split_bios(args: argparse.Namespace) -> int:
+    source = Path(args.input).resolve()
+    print(f"[INFO] Splitting BIOS: {log_path_name(source)}", flush=True)
+    try:
+        if not source.exists():
+            raise FileNotFoundError(f"BIOS file does not exist: {log_path_name(source)}")
+        bios1_size = parse_bios_mb_size(args.bios1_size)
+        bios2_size = parse_bios_mb_size(args.bios2_size)
+        out_root = Path(args.out).resolve() if args.out else source.parent
+        chip1, chip2, excess = split_bios_file(source, bios1_size, bios2_size, out_root)
+        if excess:
+            print(f"  Trim: {log_path_name(source)} removed {excess} bytes", flush=True)
+        print(f"  BIOS 1: {bios1_size} bytes -> {log_path_name(chip1)}", flush=True)
+        print(f"  BIOS 2: {bios2_size} bytes -> {log_path_name(chip2)}", flush=True)
+        print(f"  Output: {log_path_name(chip1)}", flush=True)
+        print(f"  Output: {log_path_name(chip2)}", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"  Split BIOS failed: {exc}", flush=True)
+        return 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Automate Intel CSME 11-20 clean ME preparation.")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -3623,6 +3729,19 @@ def build_parser() -> argparse.ArgumentParser:
     winkey = sub.add_parser("winkey", help="Find plaintext Windows product key candidates in BIOS dump(s).")
     winkey.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
     winkey.set_defaults(func=command_winkey)
+
+    merge_bios = sub.add_parser("merge-bios", help="Trim and merge two BIOS files in selected order.")
+    merge_bios.add_argument("--file1", required=True, help="BIOS 1. It will be placed first.")
+    merge_bios.add_argument("--file2", required=True, help="BIOS 2. It will be placed second.")
+    merge_bios.add_argument("--out", help="Output folder. Defaults to BIOS 1 folder.")
+    merge_bios.set_defaults(func=command_merge_bios)
+
+    split_bios = sub.add_parser("split-bios", help="Split a merged BIOS file by BIOS 1 and BIOS 2 sizes.")
+    split_bios.add_argument("--input", required=True, help="Merged BIOS file.")
+    split_bios.add_argument("--bios1-size", required=True, help="BIOS 1 size, for example 8MB, 16MB, or 8.")
+    split_bios.add_argument("--bios2-size", required=True, help="BIOS 2 size, for example 8MB, 16MB, or 8.")
+    split_bios.add_argument("--out", help="Output folder. Defaults to input folder.")
+    split_bios.set_defaults(func=command_split_bios)
 
     lenovo_dmi = sub.add_parser("lenovo-dmi", help="Find Lenovo DMI data in BIOS dump(s).")
     lenovo_dmi.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")

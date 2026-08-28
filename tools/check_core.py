@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, WinKeyCandidate, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, parse_mea_output, score_rgn, sku_matches, unlock_dell_8fc8_password
+from AutoClearME import FirmwareInfo, WinKeyCandidate, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, merge_bios_files, parse_bios_mb_size, parse_mea_output, score_rgn, sku_matches, split_bios_file, unlock_dell_8fc8_password
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -73,6 +73,8 @@ def main() -> int:
     winkey_line = format_winkey_candidate(WinKeyCandidate("ACPI MSDM", 0x1234, "JJQTN-6996D-TX6B2-RFVBH-PWF9C", classification="Win 10 RTM Professional OEM:DM, EULA OEM"))
     assert "Offset: [0x1234, 0x1251]" in winkey_line
     assert "JJQTN-6996D-TX6B2-RFVBH-PWF9C | Win 10 RTM Professional OEM:DM, EULA OEM" in winkey_line
+    assert parse_bios_mb_size("8") == 8 * 1024 * 1024
+    assert parse_bios_mb_size("8MB") == 8 * 1024 * 1024
     bios_samples = {
         "Dell": b"Dell Inc.\x00BIOS Version\x001.32.0\x00CSME 16.1.38.2676\x00",
         "Lenovo": b"LENOVO\x00ThinkPad\x00N3HET76W (1.48 )\x00",
@@ -189,6 +191,20 @@ def main() -> int:
         output, cleared_ranges = unlock_dell_8fc8_password(service_tag_unlocked_path)
         assert output is None
         assert cleared_ranges == []
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_root = Path(temp_dir)
+        bios1 = temp_root / "bios1.bin"
+        bios2 = temp_root / "bios2.bin"
+        bios1.write_bytes(b"\x11" * (1024 * 1024) + b"meta")
+        bios2.write_bytes(b"\x22" * (1024 * 1024))
+        merged, inputs = merge_bios_files(bios1, bios2)
+        assert merged.name == "2MB_MERGED.bin"
+        assert merged.read_bytes() == b"\x11" * (1024 * 1024) + b"\x22" * (1024 * 1024)
+        assert inputs[0][2] == 4
+        chip1, chip2, excess = split_bios_file(merged, 1024 * 1024, 1024 * 1024)
+        assert chip1.read_bytes() == b"\x11" * (1024 * 1024)
+        assert chip2.read_bytes() == b"\x22" * (1024 * 1024)
+        assert excess == 0
     assert hp_dmi_label("AAAAA-BBBBB-CCCCC-DDDDD-EEEEE") == "Windows Product Key"
     assert is_hp_model("HP ProBook 450 G8 Notebook")
     assert not is_hp_model("HP Linux Installer")
