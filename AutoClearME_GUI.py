@@ -77,6 +77,18 @@ def set_windows_app_id() -> None:
         pass
 
 
+def apply_window_icon(window: tk.Tk | tk.Toplevel) -> None:
+    if not ICON_PATH.exists():
+        return
+    try:
+        window.iconbitmap(default=str(ICON_PATH))
+    except tk.TclError:
+        try:
+            window.iconbitmap(str(ICON_PATH))
+        except tk.TclError:
+            pass
+
+
 def load_language_bundle() -> tuple[dict[str, dict[str, str]], dict[str, str]]:
     data = json.loads(LANGUAGE_PATH.read_text(encoding="utf-8-sig"))
     text = data["text"]
@@ -97,8 +109,7 @@ class ClearMeGui(DND_ROOT):
         set_windows_app_id()
         super().__init__()
         self.title(f"Auto Clear ME v{app_version()}")
-        if ICON_PATH.exists():
-            self.iconbitmap(str(ICON_PATH))
+        apply_window_icon(self)
         self.geometry("660x620")
         self.minsize(660, 620)
         self.queue: queue.Queue[str | tuple[str, object]] = queue.Queue()
@@ -593,6 +604,7 @@ class ClearMeGui(DND_ROOT):
 
     def open_settings(self) -> None:
         win = tk.Toplevel(self)
+        apply_window_icon(win)
         win.title(self.t("settings_title"))
         win.transient(self)
         win.grab_set()

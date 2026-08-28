@@ -30,6 +30,7 @@ REQUIRED_FILES = [
     str(Path("MEA") / "MEA.py"),
 ]
 PROGRESS_QUEUE: queue.Queue[tuple[str, object]] | None = None
+APP_USER_MODEL_ID = "mhqb365.AutoClearME.Update"
 
 
 def progress(message: str) -> None:
@@ -41,6 +42,39 @@ def progress(message: str) -> None:
 def progress_done(code: int) -> None:
     if PROGRESS_QUEUE is not None:
         PROGRESS_QUEUE.put(("done", code))
+
+
+def icon_path_for(app_dir: Path | None = None) -> Path:
+    roots = [Path(__file__).resolve().parent]
+    if app_dir is not None:
+        roots.append(app_dir)
+    for root in roots:
+        candidate = root / "icon.ico"
+        if candidate.exists():
+            return candidate
+    return roots[0] / "icon.ico"
+
+
+def set_windows_app_id() -> None:
+    if os.name != "nt":
+        return
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
+
+
+def apply_window_icon(window: tk.Tk | tk.Toplevel, app_dir: Path | None = None) -> None:
+    icon = icon_path_for(app_dir)
+    if not icon.exists():
+        return
+    try:
+        window.iconbitmap(default=str(icon))
+    except tk.TclError:
+        try:
+            window.iconbitmap(str(icon))
+        except tk.TclError:
+            pass
 
 
 def wait_for_parent(pid: int) -> None:
@@ -199,8 +233,10 @@ def run_update(args: argparse.Namespace) -> int:
 
 class UpdateWindow(tk.Tk):
     def __init__(self, args: argparse.Namespace) -> None:
+        set_windows_app_id()
         super().__init__()
         self.args = args
+        apply_window_icon(self, Path(args.app_dir).resolve())
         self.title("Auto Clear ME Update")
         self.geometry("420x140")
         self.resizable(False, False)
