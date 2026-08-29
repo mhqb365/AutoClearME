@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, WinKeyCandidate, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, merge_bios_files, parse_bios_mb_size, parse_mea_output, score_rgn, sku_matches, split_bios_file, unlock_dell_8fc8_password
+from AutoClearME import FirmwareInfo, WinKeyCandidate, build_parser, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, merge_bios_files, parse_bios_mb_size, parse_mea_output, score_rgn, sku_matches, split_bios_file, unlock_dell_8fc8_password
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -75,6 +75,16 @@ def main() -> int:
     assert "JJQTN-6996D-TX6B2-RFVBH-PWF9C | Win 10 RTM Professional OEM:DM, EULA OEM" in winkey_line
     assert parse_bios_mb_size("8") == 8 * 1024 * 1024
     assert parse_bios_mb_size("8MB") == 8 * 1024 * 1024
+    parser = build_parser()
+    for command_name in ("lenovo-dmi", "asus-dmi", "hp-dmi", "acer-dmi", "dell-dmi"):
+        args = parser.parse_args([command_name, "--input", "target.bin"])
+        assert args.func
+    for command_name in ("lenovo-dmi-export", "asus-dmi-export", "hp-dmi-export", "acer-dmi-export", "dell-dmi-export"):
+        args = parser.parse_args([command_name, "--input", "target.bin"])
+        assert args.func
+    for command_name in ("lenovo-dmi-import", "asus-dmi-import", "hp-dmi-import", "acer-dmi-import", "dell-dmi-import"):
+        args = parser.parse_args([command_name, "--dmi", "package.dmi", "--target", "target.bin"])
+        assert args.func
     bios_samples = {
         "Dell": b"Dell Inc.\x00BIOS Version\x001.32.0\x00CSME 16.1.38.2676\x00",
         "Lenovo": b"LENOVO\x00ThinkPad\x00N3HET76W (1.48 )\x00",

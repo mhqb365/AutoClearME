@@ -3539,10 +3539,11 @@ def command_dell_pfs_extract(args: argparse.Namespace) -> int:
         return 2
 
 
-def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
+def command_dmi_import(args: argparse.Namespace) -> int:
     target = Path(args.target).resolve()
     package = Path(args.dmi).resolve()
-    print(f"[INFO] Import DMI into {log_path_name(target)}", flush=True)
+    vendor = getattr(args, "vendor", "DMI")
+    print(f"[INFO] Import {vendor} DMI into {log_path_name(target)}", flush=True)
     if not target.exists():
         raise RuntimeError(f"Target BIOS does not exist: {log_path_name(target)}")
     if not package.exists():
@@ -3552,6 +3553,10 @@ def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
     print(f"  Blocks: {count}", flush=True)
     print(f"  Output: {log_path_name(output)}", flush=True)
     return 0
+
+
+def command_lenovo_dmi_import(args: argparse.Namespace) -> int:
+    return command_dmi_import(args)
 
 
 def command_unlock_asus(args: argparse.Namespace) -> int:
@@ -3789,10 +3794,17 @@ def build_parser() -> argparse.ArgumentParser:
     dell_pfs.add_argument("--structure", action="store_true", help="Preserve BIOSUtilities structure output.")
     dell_pfs.set_defaults(func=command_dell_pfs_extract)
 
-    lenovo_import = sub.add_parser("lenovo-dmi-import", help="Import Lenovo DMI blocks into another BIOS dump.")
-    lenovo_import.add_argument("--dmi", required=True, help="Lenovo DMI .lendmi package.")
-    lenovo_import.add_argument("--target", required=True, help="Target BIOS dump.")
-    lenovo_import.set_defaults(func=command_lenovo_dmi_import)
+    for command_name, vendor, package_help in (
+        ("lenovo-dmi-import", "Lenovo", "Lenovo DMI .lendmi package."),
+        ("asus-dmi-import", "ASUS", "ASUS DMI .asusdmi package."),
+        ("hp-dmi-import", "HP", "HP DMI .hpdmi package."),
+        ("acer-dmi-import", "Acer", "Acer DMI .acerdmi package."),
+        ("dell-dmi-import", "Dell", "Dell DMI .delldmi package."),
+    ):
+        dmi_import = sub.add_parser(command_name, help=f"Import {vendor} DMI blocks into another BIOS dump.")
+        dmi_import.add_argument("--dmi", required=True, help=package_help)
+        dmi_import.add_argument("--target", required=True, help="Target BIOS dump.")
+        dmi_import.set_defaults(func=command_dmi_import, vendor=vendor)
 
     unlock = sub.add_parser("unlock-asus", help="Clear ASUS BIOS password.")
     unlock.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
