@@ -776,7 +776,7 @@ class ClearMeGui(DND_ROOT):
     def pick_dell_pfs_input(self, key: str) -> None:
         path = filedialog.askopenfilename(
             title=self.t("dell_pfs_file"),
-            filetypes=[("Dell update/PFS", "*.exe *.bin *.pfs *.pkg *.cab"), ("All files", "*.*")],
+            filetypes=[("Dell update file", "*.exe *.bin *.pfs *.pkg *.cab *.rcv *.txt"), ("All files", "*.*")],
         )
         if path:
             self.input_paths[key] = path

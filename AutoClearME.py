@@ -3523,7 +3523,7 @@ def command_dell_pfs_extract(args: argparse.Namespace) -> int:
             structure=args.structure,
         )
         if not extractor.check_format():
-            print("  Dell PFS/PKG format was not detected.", flush=True)
+            print("  Dell PFS/PKG/TXT/RCV format was not detected.", flush=True)
             return 2
         capture = io.StringIO()
         with contextlib.redirect_stdout(capture):
@@ -3783,8 +3783,8 @@ def build_parser() -> argparse.ArgumentParser:
     dell_export.add_argument("--input", required=True, help="Source BIOS dump.")
     dell_export.set_defaults(func=command_dell_dmi_export)
 
-    dell_pfs = sub.add_parser("dell-pfs-extract", help="Extract Dell PFS/PKG update images.")
-    dell_pfs.add_argument("--input", required=True, help="Dell BIOS update/PFS/PKG image. Output goes to DELL_PFS next to input.")
+    dell_pfs = sub.add_parser("dell-pfs-extract", help="Extract Dell PFS/PKG/TXT/RCV update images.")
+    dell_pfs.add_argument("--input", required=True, help="Dell BIOS update/PFS/PKG/TXT/RCV image. Output goes to DELL_PFS next to input.")
     dell_pfs.add_argument("--advanced", action="store_true", help="Enable BIOSUtilities advanced extraction.")
     dell_pfs.add_argument("--structure", action="store_true", help="Preserve BIOSUtilities structure output.")
     dell_pfs.set_defaults(func=command_dell_pfs_extract)

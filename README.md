@@ -24,7 +24,7 @@ The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matc
 - Finds, exports, and imports whole DMI blocks for Acer, ASUS, Dell, HP, and Lenovo
 - Supports vendor BIOS password unlock helpers for Acer, ASUS, HP, and Dell 8FC8
 - Dell 8FC8 unlock can also patch supported dumps to allow Service Tag re-entry
-- Extracts Dell PFS/PKG update images
+- Extracts Dell PFS/PKG/TXT/RCV update images
 - Uses a compact grouped function menu and a resizable control/log layout
 - Opens File Explorer after a successful clear
 - Supports English and Vietnamese UI
@@ -146,7 +146,7 @@ App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME R
 - Tìm, xuất và nhập nguyên khối DMI cho Acer, ASUS, Dell, HP và Lenovo
 - Hỗ trợ mở khóa BIOS cho Acer, ASUS, HP và Dell 8FC8
 - Dell 8FC8 có thể patch một số dump để nhập lại Service Tag
-- Trích xuất Dell PFS/PKG update image
+- Trích xuất Dell PFS/PKG/TXT/RCV update image
 - Giao diện dùng menu chức năng gom theo hãng và có thể kéo chỉnh chiều cao control/log
 - Mở File Explorer sau khi clear thành công
 - Hỗ trợ giao diện tiếng Anh và tiếng Việt
