@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from AutoClearME import FirmwareInfo, WinKeyCandidate, build_parser, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, merge_bios_files, parse_bios_mb_size, parse_mea_output, score_rgn, sku_matches, split_bios_file, unlock_dell_8fc8_password
+from AutoClearME import FirmwareInfo, WinKeyCandidate, build_parser, detect_asus_bios_header, detect_bios_version, display_sku, find_acer_dmi, find_asus_dmi, find_dell_dmi, format_winkey_candidate, hp_dmi_label, is_hp_model, lenovo_dmi_label, merge_bios_files, parse_bios_mb_size, parse_mea_output, patch_winkey, score_rgn, sku_matches, split_bios_file, unlock_dell_8fc8_password, update_acpi_table_checksum
 from AutoClearME_GUI import format_version, version_parts
 
 
@@ -85,6 +85,8 @@ def main() -> int:
     for command_name in ("lenovo-dmi-import", "asus-dmi-import", "hp-dmi-import", "acer-dmi-import", "dell-dmi-import"):
         args = parser.parse_args([command_name, "--dmi", "package.dmi", "--target", "target.bin"])
         assert args.func
+    args = parser.parse_args(["winkey-patch", "--input", "target.bin", "--key", "VK7JG-NPHTM-C97JM-9MPGT-3V66T"])
+    assert args.func
     bios_samples = {
         "Dell": b"Dell Inc.\x00BIOS Version\x001.32.0\x00CSME 16.1.38.2676\x00",
         "Lenovo": b"LENOVO\x00ThinkPad\x00N3HET76W (1.48 )\x00",
@@ -203,6 +205,43 @@ def main() -> int:
         assert cleared_ranges == []
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
+        winkey_bios = temp_root / "winkey.bin"
+        winkey_bios.write_bytes(b"\xFF" * 0x20 + b"JJQTN-6996D-TX6B2-RFVBH-PWF9C" + b"\xFF" * 0x20)
+        winkey_output, patched_keys = patch_winkey(winkey_bios, "VK7JG-NPHTM-C97JM-9MPGT-3V66T")
+        assert [(candidate.offset, checksum_updated) for candidate, checksum_updated in patched_keys] == [(0x20, False)]
+        assert b"VK7JG-NPHTM-C97JM-9MPGT-3V66T" in winkey_output.read_bytes()
+        assert b"JJQTN-6996D-TX6B2-RFVBH-PWF9C" not in winkey_output.read_bytes()
+        mirrored_winkey_bios = temp_root / "mirrored-winkey.bin"
+        mirrored_winkey_bios.write_bytes(
+            b"\xFF" * 0x20
+            + b"JJQTN-6996D-TX6B2-RFVBH-PWF9C"
+            + b"\xFF" * 0x20
+            + b"JJQTN-6996D-TX6B2-RFVBH-PWF9C"
+        )
+        mirrored_output, patched_keys = patch_winkey(mirrored_winkey_bios, "VK7JG-NPHTM-C97JM-9MPGT-3V66T")
+        assert [candidate.offset for candidate, _checksum_updated in patched_keys] == [0x20, 0x5D]
+        assert mirrored_output.read_bytes().count(b"VK7JG-NPHTM-C97JM-9MPGT-3V66T") == 2
+        assert b"JJQTN-6996D-TX6B2-RFVBH-PWF9C" not in mirrored_output.read_bytes()
+        msdm_bios = temp_root / "msdm.bin"
+        msdm_table = bytearray(
+            b"MSDM"
+            + (0x55).to_bytes(4, "little")
+            + b"\x01\x00"
+            + b"OEMID "
+            + b"OEMTABLE"
+            + b"\x01\x00\x00\x00"
+            + b"TEST"
+            + b"\x01\x00\x00\x00"
+            + b"\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x1D\x00\x00\x00"
+            + b"JJQTN-6996D-TX6B2-RFVBH-PWF9C"
+        )
+        update_acpi_table_checksum(msdm_table, 0, len(msdm_table))
+        msdm_bios.write_bytes(b"\xFF" * 0x40 + msdm_table + b"\xFF" * 0x20)
+        msdm_output, patched_keys = patch_winkey(msdm_bios, "VK7JG-NPHTM-C97JM-9MPGT-3V66T")
+        patched_msdm = msdm_output.read_bytes()[0x40:0x40 + len(msdm_table)]
+        assert len(patched_keys) == 1
+        assert patched_keys[0][1]
+        assert sum(patched_msdm) & 0xFF == 0
         bios1 = temp_root / "bios1.bin"
         bios2 = temp_root / "bios2.bin"
         bios1.write_bytes(b"\x11" * (1024 * 1024) + b"meta")

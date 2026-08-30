@@ -33,6 +33,7 @@ APP_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = APP_DIR / "config.json"
 ENGINE_PATH = APP_DIR / "AutoClearME.py"
 ICON_PATH = APP_DIR / "icon.ico"
+WINKEY_RE = re.compile(r"\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b", re.IGNORECASE)
 VERSION_PATH = APP_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
 RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
@@ -143,6 +144,8 @@ class ClearMeGui(DND_ROOT):
             "split_bios_input": tk.StringVar(),
             "split_bios1_size": tk.StringVar(value="8MB"),
             "split_bios2_size": tk.StringVar(value="16MB"),
+            "winkey_input": tk.StringVar(),
+            "winkey_new_key": tk.StringVar(),
             "oem_dmi_vendor": tk.StringVar(value="Acer"),
             "oem_dmi_target": tk.StringVar(),
             "oem_dmi_package": tk.StringVar(),
@@ -261,6 +264,19 @@ class ClearMeGui(DND_ROOT):
         self.split_bios_button.grid(row=0, column=0)
         tabs.add(split_tab, text="")
 
+        winkey_tab = ttk.Frame(tabs, padding=10)
+        winkey_tab.columnconfigure(1, weight=1)
+        self.path_row(winkey_tab, 0, "bios_file", "winkey_input", self.pick_input, clearable=True)
+        self.entry_row(winkey_tab, 1, "winkey", "winkey_new_key")
+        winkey_actions = ttk.Frame(winkey_tab)
+        winkey_actions.grid(row=2, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        self.winkey_find_button = ttk.Button(winkey_actions, command=self.start_find_winkey)
+        self.winkey_find_button.grid(row=0, column=0, padx=(0, 8))
+        self.winkey_patch_button = ttk.Button(winkey_actions, command=self.start_patch_winkey)
+        self.winkey_patch_button.grid(row=0, column=1)
+        self.winkey_button = self.winkey_find_button
+        tabs.add(winkey_tab, text="")
+
         acer_dmi_tab = self.build_dmi_import_tab(tabs, "acer_dmi_target", "acer_dmi_package", self.start_import_acer_dmi, self.start_find_acer_dmi)
         self.import_acer_dmi_button = acer_dmi_tab.import_button
         self.acer_dmi_button = acer_dmi_tab.find_button
@@ -319,10 +335,8 @@ class ClearMeGui(DND_ROOT):
         actions.columnconfigure(0, weight=1)
         action_buttons = ttk.Frame(actions)
         action_buttons.grid(row=0, column=0, sticky="")
-        self.winkey_button = ttk.Button(action_buttons, command=self.start_find_winkey)
-        self.winkey_button.grid(row=0, column=0, padx=(0, 8), pady=(0, 4))
         self.clear_button = ttk.Button(action_buttons, command=self.start_clear)
-        self.clear_button.grid(row=0, column=1, padx=(0, 8), pady=(0, 4))
+        self.clear_button.grid(row=0, column=0, padx=(0, 8), pady=(0, 4))
         self.status_var = tk.StringVar(value="")
         status_bar = ttk.Frame(actions)
         status_bar.grid(row=1, column=0, sticky="ew", pady=(8, 0))
@@ -437,13 +451,14 @@ class ClearMeGui(DND_ROOT):
             return
         tab_index = self.tabs.index("current")
         self.update_selected_feature_label()
+        current_key = self.feature_tab_keys[tab_index] if 0 <= tab_index < len(self.feature_tab_keys) else ""
         if tab_index >= 2:
             self.show_main_actions(False)
             self.update_tabs_height()
-            if tab_index == 6 and not self.dell_dmi_warning_shown:
+            if current_key == "dell_dmi_tab" and not self.dell_dmi_warning_shown:
                 self.dell_dmi_warning_shown = True
                 self.log_info(self.t("dell_dmi_warning"))
-            if tab_index == 9 and not self.dell_8fc8_warning_shown:
+            if current_key == "dell_8fc8_unlock_tab" and not self.dell_8fc8_warning_shown:
                 self.dell_8fc8_warning_shown = True
                 self.log_info(self.t("dell_8fc8_warning"))
             self.reset_analysis()
@@ -487,6 +502,7 @@ class ClearMeGui(DND_ROOT):
             "dual_bios",
             "merge_bios",
             "split_bios",
+            "winkey_tab",
             "acer_dmi_tab",
             "asus_dmi_tab",
             "dell_dmi_tab",
@@ -499,12 +515,12 @@ class ClearMeGui(DND_ROOT):
             "dell_pfs_tab",
         ]
         self.feature_menu_groups = [
-            (None, [(0, "single_bios"), (1, "dual_bios"), (2, "merge_bios"), (3, "split_bios")]),
-            ("acer_group", [(4, "acer_dmi_tab"), (10, "unlock_acer_tab")]),
-            ("asus_group", [(5, "asus_dmi_tab"), (11, "unlock_asus_tab")]),
-            ("dell_group", [(13, "dell_pfs_tab"), (6, "dell_dmi_tab"), (9, "dell_8fc8_unlock_tab")]),
-            ("hp_group", [(7, "hp_dmi_tab"), (12, "unlock_hp_tab")]),
-            ("lenovo_group", [(8, "lenovo_dmi_tab")]),
+            (None, [(0, "single_bios"), (1, "dual_bios"), (2, "merge_bios"), (3, "split_bios"), (4, "winkey_tab")]),
+            ("acer_group", [(5, "acer_dmi_tab"), (11, "unlock_acer_tab")]),
+            ("asus_group", [(6, "asus_dmi_tab"), (12, "unlock_asus_tab")]),
+            ("dell_group", [(14, "dell_pfs_tab"), (7, "dell_dmi_tab"), (10, "dell_8fc8_unlock_tab")]),
+            ("hp_group", [(8, "hp_dmi_tab"), (13, "unlock_hp_tab")]),
+            ("lenovo_group", [(9, "lenovo_dmi_tab")]),
         ]
         self.feature_menu.delete(0, "end")
         self.feature_submenus: list[tuple[tk.Menu, list[tuple[int, str]]]] = []
@@ -578,7 +594,8 @@ class ClearMeGui(DND_ROOT):
         self.hp_dmi_button.configure(text=self.t("hp_dmi"))
         self.acer_dmi_button.configure(text=self.t("acer_dmi"))
         self.dell_dmi_button.configure(text=self.t("dell_dmi"))
-        self.winkey_button.configure(text=self.t("winkey"))
+        self.winkey_find_button.configure(text=self.t("find_winkey"))
+        self.winkey_patch_button.configure(text=self.t("change_winkey"))
         self.unlock_asus_button.configure(text=self.t("unlock_asus"))
         self.unlock_acer_button.configure(text=self.t("unlock_acer"))
         self.unlock_hp_button.configure(text=self.t("unlock_hp"))
@@ -919,7 +936,38 @@ class ClearMeGui(DND_ROOT):
         return [value] if value.strip() else []
 
     def start_find_winkey(self) -> None:
-        self.start_find_info("Win Key", "winkey", self.winkey_button, "WINKEY_DONE")
+        source = self.input_path("winkey_input")
+        if not source:
+            self.log_info("Find Win Key skipped: please select BIOS file first")
+            return
+        self.last_result = ""
+        files = [source]
+        self.start_find_info("Win Key", "winkey", self.winkey_find_button, "WINKEY_DONE", files)
+
+    def start_patch_winkey(self) -> None:
+        source = self.input_path("winkey_input")
+        key = self.vars["winkey_new_key"].get().strip().upper()
+        if not source or not key:
+            self.log_info("Change Win Key skipped: please select BIOS file and enter Win Key")
+            return
+        if not self.is_valid_winkey_input(key):
+            self.log_error("Invalid Win Key format. Use XXXXX-XXXXX-XXXXX-XXXXX-XXXXX")
+            return
+        self.vars["winkey_new_key"].set(key)
+        self.winkey_patch_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_result = ""
+        cmd = self.engine_cmd("winkey-patch", "--input", source, "--key", key)
+        self.start_command(cmd, "WINKEY_PATCH_DONE")
+
+    def is_valid_winkey_input(self, key: str) -> bool:
+        compact = key.replace("-", "")
+        return (
+            bool(WINKEY_RE.fullmatch(key))
+            and any(ch.isalpha() for ch in compact)
+            and any(ch.isdigit() for ch in compact)
+            and len(set(compact)) >= 6
+        )
 
     def start_merge_bios(self) -> None:
         file1 = self.input_path("merge_bios1")
@@ -1241,11 +1289,15 @@ class ClearMeGui(DND_ROOT):
             if done_tag == "ANALYZE_DONE":
                 self.last_analyze_result += line
             elif done_tag == "WINKEY_DONE":
+                self.last_result += line
                 self.queue.put(line)
             elif done_tag in {"ASUS_DMI_DONE", "LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
                 self.last_dmi_transfer_result += line
                 self.queue.put(line)
             elif done_tag == "DELL_PFS_DONE":
+                self.last_result += line
+                self.queue.put(line)
+            elif done_tag == "WINKEY_PATCH_DONE":
                 self.last_result += line
                 self.queue.put(line)
             elif done_tag == "BIOS_TOOL_DONE":
@@ -1322,7 +1374,10 @@ class ClearMeGui(DND_ROOT):
             self.handle_analyze_done(code)
             return
         if tag == "WINKEY_DONE":
-            self.handle_find_info_done(code, self.winkey_button, "Win Key")
+            self.handle_winkey_find_done(code)
+            return
+        if tag == "WINKEY_PATCH_DONE":
+            self.handle_winkey_patch_done(code)
             return
         if tag == "LENOVO_DMI_DONE":
             self.handle_oem_dmi_done(code, self.lenovo_dmi_button, "Lenovo")
@@ -1369,6 +1424,7 @@ class ClearMeGui(DND_ROOT):
         for button in (
             self.clear_button,
             self.winkey_button,
+            self.winkey_patch_button,
             self.unlock_asus_button,
             self.unlock_acer_button,
             self.unlock_hp_button,
@@ -1394,6 +1450,32 @@ class ClearMeGui(DND_ROOT):
         self.status_var.set(self.t("ready") if code == 0 else self.t("error"))
         if code != 0:
             self.log_error(f"Find {label} stopped with exit code {code}.")
+
+    def handle_winkey_find_done(self, code: int) -> None:
+        self.handle_find_info_done(code, self.winkey_button, "Win Key")
+        if code != 0:
+            return
+        key = self.first_winkey_from_result()
+        if key:
+            self.vars["winkey_new_key"].set(key)
+
+    def first_winkey_from_result(self) -> str:
+        for line in self.last_result.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Old Windows Product Key:") or stripped.startswith("New Windows Product Key:"):
+                continue
+            match = WINKEY_RE.search(stripped)
+            if match:
+                return match.group(0).upper()
+        return ""
+
+    def handle_winkey_patch_done(self, code: int) -> None:
+        self.winkey_patch_button.configure(state="normal")
+        self.status_var.set(self.t("export_complete") if code == 0 else self.t("error"))
+        if code != 0:
+            self.log_error(f"Patch Win Key stopped with exit code {code}.")
+            return
+        self.open_output_location(self.output_lines_to_paths(self.last_result, [self.input_path("winkey_input")]))
 
     def handle_oem_dmi_done(self, code: int, button: ttk.Button, vendor: str) -> None:
         button.configure(state="normal")
@@ -1667,14 +1749,15 @@ class ClearMeGui(DND_ROOT):
 
     def first_oem_dmi_source(self) -> str:
         vendor = self.last_oem_dmi_vendor or "Lenovo"
-        result_lower = self.last_dmi_transfer_result.lower()
+        result_text = getattr(self, "last_dmi_transfer_result", "")
+        result_lower = result_text.lower()
         for index, source in enumerate(self.last_oem_dmi_files):
             name = Path(source).name
             marker = f"[INFO] Finding {vendor} DMI in {name}"
             start = result_lower.find(marker.lower())
             if start < 0:
                 continue
-            next_start = len(self.last_dmi_transfer_result)
+            next_start = len(result_text)
             if index + 1 < len(self.last_oem_dmi_files):
                 next_marker = f"[INFO] Finding {vendor} DMI in {Path(self.last_oem_dmi_files[index + 1]).name}"
                 found = result_lower.find(next_marker.lower(), start + len(marker))
@@ -1686,7 +1769,6 @@ class ClearMeGui(DND_ROOT):
         return ""
 
     def dmi_transfer_outputs(self) -> list[Path]:
-        outputs = []
         source_dirs = [
             self.input_path("dmi_target"),
             self.input_path("dmi_package"),
@@ -1701,7 +1783,11 @@ class ClearMeGui(DND_ROOT):
             *self.selected_bios_files(),
             *self.last_oem_dmi_files,
         ]
-        for line in self.last_dmi_transfer_result.splitlines():
+        return self.output_lines_to_paths(getattr(self, "last_dmi_transfer_result", ""), source_dirs)
+
+    def output_lines_to_paths(self, text: str, source_dirs: list[str]) -> list[Path]:
+        outputs = []
+        for line in text.splitlines():
             if line.strip().startswith("Output:"):
                 name = line.split(":", 1)[1].strip()
                 for source in source_dirs:

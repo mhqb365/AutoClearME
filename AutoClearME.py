@@ -497,6 +497,15 @@ def is_valid_winkey(key: str) -> bool:
     return len(set(compact)) >= 6
 
 
+def normalize_winkey(key: str) -> str:
+    value = key.strip().upper()
+    if not WINKEY_PATTERN.fullmatch(value.encode("ascii", errors="ignore")) or len(value) != WINKEY_LENGTH:
+        raise ValueError("Windows product key must use XXXXX-XXXXX-XXXXX-XXXXX-XXXXX format.")
+    if not is_valid_winkey(value):
+        raise ValueError("Windows product key does not look valid.")
+    return value
+
+
 def classify_winkey(key: str, method: str) -> str:
     pidgen = classify_winkey_with_pidgenx(key)
     if pidgen:
@@ -2086,6 +2095,62 @@ def find_winkeys(buffer: bytes) -> list[WinKeyCandidate]:
     return sorted(by_offset.values(), key=lambda candidate: (method_priority(candidate.method), candidate.offset))
 
 
+def winkey_output_name(source: Path) -> Path:
+    suffix = source.suffix or ".bin"
+    return unique_output_path(source.with_name(f"{source.stem}_WINKEY{suffix}"))
+
+
+def acpi_table_range_for_offset(buffer: bytes | bytearray, signature: bytes, offset: int) -> tuple[int, int] | None:
+    for table_start in find_all_bytes(bytes(buffer), signature):
+        if table_start + 36 > len(buffer):
+            continue
+        table_length = int.from_bytes(buffer[table_start + 4:table_start + 8], "little", signed=False)
+        table_end = table_start + table_length
+        if table_length < 36 or table_end > len(buffer):
+            continue
+        if table_start <= offset < table_end:
+            return table_start, table_end
+    return None
+
+
+def update_acpi_table_checksum(buffer: bytearray, table_start: int, table_end: int) -> None:
+    checksum_offset = table_start + 9
+    buffer[checksum_offset] = 0
+    buffer[checksum_offset] = (-sum(buffer[table_start:table_end])) & 0xFF
+
+
+def patch_winkey(source: Path, new_key: str) -> tuple[Path, list[tuple[WinKeyCandidate, bool]]]:
+    normalized_key = normalize_winkey(new_key)
+    data = bytearray(source.read_bytes())
+    candidates = [
+        candidate
+        for candidate in find_winkeys(data)
+        if candidate.method != "Lenovo LENV XOR DMI" and candidate.length == WINKEY_LENGTH
+    ]
+    if not candidates:
+        raise RuntimeError("No patchable plaintext Windows product key found.")
+    patched: list[tuple[WinKeyCandidate, bool]] = []
+    seen_offsets: set[int] = set()
+    for candidate in sorted(candidates, key=lambda item: item.offset):
+        if candidate.offset in seen_offsets:
+            continue
+        seen_offsets.add(candidate.offset)
+        start = candidate.offset
+        end = start + candidate.length
+        if start < 0 or end > len(data):
+            raise RuntimeError("Windows product key offset is outside the BIOS file.")
+        data[start:end] = normalized_key.encode("ascii")
+        checksum_updated = False
+        table_range = acpi_table_range_for_offset(data, b"MSDM", candidate.offset)
+        if table_range:
+            update_acpi_table_checksum(data, *table_range)
+            checksum_updated = True
+        patched.append((candidate, checksum_updated))
+    output = winkey_output_name(source)
+    output.write_bytes(data)
+    return output, patched
+
+
 def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
     c = parse_filename_info(candidate)
     if input_info.major is None or input_info.minor is None:
@@ -3314,16 +3379,37 @@ def command_winkey(args: argparse.Namespace) -> int:
             if not candidates:
                 print("  No plaintext Windows product key candidate found", flush=True)
                 continue
-            unique_candidates = {}
             for candidate in candidates:
-                classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
-                unique_candidates.setdefault((candidate.key, classification), candidate)
-            for candidate in unique_candidates.values():
                 print(format_winkey_candidate(candidate), flush=True)
         except Exception as exc:
             failed += 1
             print(f"  Find WinKey failed: {exc}", flush=True)
     return 0 if failed == 0 else 2
+
+
+def command_winkey_patch(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    print(f"[INFO] Patch Win Key in {log_path_name(path)}", flush=True)
+    try:
+        if not path.exists():
+            print(f"  File does not exist: {log_path_name(path)}", flush=True)
+            return 2
+        new_key = normalize_winkey(args.key)
+        output, patched = patch_winkey(path, new_key)
+        new_classification = re.sub(r"^likely\s+", "", classify_winkey(new_key, "ACPI MSDM"), flags=re.IGNORECASE)
+        for candidate, checksum_updated in patched:
+            old_classification = re.sub(r"^likely\s+", "", candidate.classification, flags=re.IGNORECASE)
+            print(f"  Offset: [0x{candidate.offset:X}, 0x{candidate.offset + candidate.length:X}]", flush=True)
+            print(f"  Old Windows Product Key: {candidate.key} | {old_classification}", flush=True)
+            print(f"  New Windows Product Key: {new_key} | {new_classification}", flush=True)
+            if checksum_updated:
+                print("  ACPI MSDM checksum: updated", flush=True)
+        print(f"  Patched keys: {len(patched)}", flush=True)
+        print(f"  Output: {log_path_name(output)}", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"  Patch Win Key failed: {exc}", flush=True)
+        return 2
 
 
 def command_lenovo_dmi(args: argparse.Namespace) -> int:
@@ -3734,6 +3820,11 @@ def build_parser() -> argparse.ArgumentParser:
     winkey = sub.add_parser("winkey", help="Find plaintext Windows product key candidates in BIOS dump(s).")
     winkey.add_argument("--input", action="append", required=True, help="BIOS dump to scan. Repeat for Dual BIOS.")
     winkey.set_defaults(func=command_winkey)
+
+    winkey_patch = sub.add_parser("winkey-patch", help="Patch the first plaintext Windows product key in a BIOS dump.")
+    winkey_patch.add_argument("--input", required=True, help="BIOS dump to patch.")
+    winkey_patch.add_argument("--key", required=True, help="New Windows product key in XXXXX-XXXXX-XXXXX-XXXXX-XXXXX format.")
+    winkey_patch.set_defaults(func=command_winkey_patch)
 
     merge_bios = sub.add_parser("merge-bios", help="Trim and merge two BIOS files in selected order.")
     merge_bios.add_argument("--file1", required=True, help="BIOS 1. It will be placed first.")
