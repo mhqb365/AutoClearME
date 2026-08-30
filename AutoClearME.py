@@ -40,10 +40,12 @@ RGN_RE = re.compile(
     re.IGNORECASE,
 )
 VERSION_RE = re.compile(r"(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<hotfix>\d+))?(?:\.(?P<build>\d+))?")
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 DEFAULT_CONFIG = APP_DIR / "config.json"
-LOCAL_MEA = APP_DIR / "MEA" / "MEA.py"
+LOCAL_MEA = (APP_DIR / "MEA" / "MEA.py") if (APP_DIR / "MEA" / "MEA.py").exists() else RESOURCE_DIR / "MEA" / "MEA.py"
 MEA_PYTHON_PACKAGES = ("colorama", "crccheck", "pltable")
+RUNTIME_PYTHON = APP_DIR / "Runtime" / "Python" / "python.exe"
 ASUS_AMITSE_MARKER = bytes.fromhex("41 4D 49 54 53 45 53 65 74 75 70 00")
 ASUS_UNLOCK_ZERO_LENGTH = 80
 ACER_OLD_PASSWORD_MARKER = bytes.fromhex("5F 50 53 57 5F")
@@ -174,6 +176,30 @@ def find_files(root: Path, names: Iterable[str]) -> list[Path]:
     return [p for p in root.rglob("*") if p.is_file() and p.name.lower() in wanted]
 
 
+def python_for_scripts() -> str:
+    if not getattr(sys, "frozen", False):
+        return sys.executable
+    if RUNTIME_PYTHON.exists():
+        return str(RUNTIME_PYTHON)
+    for command in ("py", "python", "python3"):
+        try:
+            probe = [command, "-3"] if command == "py" else [command]
+            result = subprocess.run(
+                [*probe, "-c", "import sys; print(sys.executable)"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                errors="replace",
+                startupinfo=subprocess.STARTUPINFO() if os.name == "nt" else None,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            )
+        except OSError:
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    raise RuntimeError("Python is required to run MEA.py. Install Python 3.10+ or include Runtime\\Python\\python.exe.")
+
+
 def find_me_analyzer(search_roots: list[Path]) -> Path | None:
     if LOCAL_MEA.exists():
         return LOCAL_MEA
@@ -189,7 +215,7 @@ def find_me_analyzer(search_roots: list[Path]) -> Path | None:
 def analyze_with_mea(mea: Path, image: Path) -> FirmwareInfo:
     if mea.suffix.lower() == ".py":
         ensure_mea_dependencies()
-        cmd = [sys.executable, str(mea), "-skip", "-exit", str(image)]
+        cmd = [python_for_scripts(), str(mea), "-skip", "-exit", str(image)]
     else:
         cmd = [str(mea), "-skip", "-exit", str(image)]
     code, out = run(cmd, cwd=mea.parent)
@@ -201,13 +227,22 @@ def analyze_with_mea(mea: Path, image: Path) -> FirmwareInfo:
 
 
 def ensure_mea_dependencies() -> None:
-    missing = [package for package in MEA_PYTHON_PACKAGES if not importlib.util.find_spec(package)]
+    if getattr(sys, "frozen", False):
+        python = python_for_scripts()
+        missing = []
+        for package in MEA_PYTHON_PACKAGES:
+            code, _out = run([python, "-c", f"import {package}"])
+            if code != 0:
+                missing.append(package)
+    else:
+        python = sys.executable
+        missing = [package for package in MEA_PYTHON_PACKAGES if not importlib.util.find_spec(package)]
     if not missing:
         return
     print("[MEA] Installing missing Python packages for ME Analyzer: " + ", ".join(missing), flush=True)
-    code, out = run([sys.executable, "-m", "pip", "install", *missing])
+    code, out = run([python, "-m", "pip", "install", *missing])
     if code != 0:
-        install_cmd = f"{sys.executable} -m pip install " + " ".join(missing)
+        install_cmd = f"{python} -m pip install " + " ".join(missing)
         raise RuntimeError(
             "MEA.py needs extra Python packages, but automatic installation failed.\n"
             f"Run this command manually:\n{install_cmd}\n\n{out}"

@@ -18,6 +18,7 @@ import tempfile
 import urllib.request
 import webbrowser
 import ctypes
+import contextlib
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -29,18 +30,19 @@ except ImportError:
     DND_ROOT = tk.Tk
 
 
-APP_DIR = Path(__file__).resolve().parent
+APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 CONFIG_PATH = APP_DIR / "config.json"
 ENGINE_PATH = APP_DIR / "AutoClearME.py"
-ICON_PATH = APP_DIR / "icon.ico"
+ICON_PATH = (APP_DIR / "icon.ico") if (APP_DIR / "icon.ico").exists() else RESOURCE_DIR / "icon.ico"
 WINKEY_RE = re.compile(r"\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b", re.IGNORECASE)
-VERSION_PATH = APP_DIR / "VERSION"
+VERSION_PATH = (APP_DIR / "VERSION") if (APP_DIR / "VERSION").exists() else RESOURCE_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
 RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
 APP_USER_MODEL_ID = "mhqb365.AutoClearME"
 
-LANGUAGE_PATH = APP_DIR / "languages.json"
+LANGUAGE_PATH = (APP_DIR / "languages.json") if (APP_DIR / "languages.json").exists() else RESOURCE_DIR / "languages.json"
 
 
 def version_parts(value: str) -> tuple[int, int, int, int]:
@@ -1269,6 +1271,9 @@ class ClearMeGui(DND_ROOT):
             pass
 
     def run_command(self, cmd: list[str], done_tag: str) -> None:
+        if getattr(sys, "frozen", False) and cmd and Path(cmd[0]).resolve() == Path(sys.executable).resolve():
+            self.run_embedded_command(cmd[1:], done_tag)
+            return
         proc = subprocess.Popen(
             cmd,
             cwd=str(APP_DIR),
@@ -1286,38 +1291,72 @@ class ClearMeGui(DND_ROOT):
                 pass
         assert proc.stdout is not None
         for line in proc.stdout:
-            if done_tag == "ANALYZE_DONE":
-                self.last_analyze_result += line
-            elif done_tag == "WINKEY_DONE":
-                self.last_result += line
-                self.queue.put(line)
-            elif done_tag in {"ASUS_DMI_DONE", "LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
-                self.last_dmi_transfer_result += line
-                self.queue.put(line)
-            elif done_tag == "DELL_PFS_DONE":
-                self.last_result += line
-                self.queue.put(line)
-            elif done_tag == "WINKEY_PATCH_DONE":
-                self.last_result += line
-                self.queue.put(line)
-            elif done_tag == "BIOS_TOOL_DONE":
-                self.last_result += line
-                self.queue.put(line)
-            elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE", "UNLOCK_DELL_8FC8_DONE"}:
-                self.last_unlock_result += line
-                self.queue.put(line)
-            elif done_tag == "DMI_IMPORT_DONE":
-                self.last_dmi_transfer_result += line
-                self.queue.put(line)
-            else:
-                self.last_result += line
-                if self.should_show_clear_line(line):
-                    self.queue.put(line)
+            self.record_command_line(done_tag, line)
         proc.wait()
         self.current_process = None
         self.queue.put(("TASK_STOPPED", done_tag) if self.stop_requested else (done_tag, proc.returncode))
 
+    def run_embedded_command(self, args: list[str], done_tag: str) -> None:
+        class QueueWriter:
+            def __init__(writer_self, owner: ClearMeGui) -> None:
+                writer_self.owner = owner
+                writer_self.buffer = ""
+
+            def write(writer_self, text: str) -> int:
+                writer_self.buffer += text
+                while "\n" in writer_self.buffer:
+                    line, writer_self.buffer = writer_self.buffer.split("\n", 1)
+                    writer_self.owner.record_command_line(done_tag, line + "\n")
+                return len(text)
+
+            def flush(writer_self) -> None:
+                if writer_self.buffer:
+                    writer_self.owner.record_command_line(done_tag, writer_self.buffer)
+                    writer_self.buffer = ""
+
+        writer = QueueWriter(self)
+        code = 2
+        try:
+            from AutoClearME import main as engine_main
+
+            with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                code = engine_main(args)
+        except SystemExit as exc:
+            code = int(exc.code or 0) if isinstance(exc.code, int) else 2
+        except Exception as exc:
+            writer.write(f"[ERROR] {exc}\n")
+            code = 2
+        finally:
+            writer.flush()
+            self.current_process = None
+            self.queue.put(("TASK_STOPPED", done_tag) if self.stop_requested else (done_tag, code))
+
+    def record_command_line(self, done_tag: str, line: str) -> None:
+        if done_tag == "ANALYZE_DONE":
+            self.last_analyze_result += line
+        elif done_tag == "WINKEY_DONE":
+            self.last_result += line
+            self.queue.put(line)
+        elif done_tag in {"ASUS_DMI_DONE", "LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
+            self.last_dmi_transfer_result += line
+            self.queue.put(line)
+        elif done_tag in {"DELL_PFS_DONE", "WINKEY_PATCH_DONE", "BIOS_TOOL_DONE"}:
+            self.last_result += line
+            self.queue.put(line)
+        elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE", "UNLOCK_DELL_8FC8_DONE"}:
+            self.last_unlock_result += line
+            self.queue.put(line)
+        elif done_tag == "DMI_IMPORT_DONE":
+            self.last_dmi_transfer_result += line
+            self.queue.put(line)
+        else:
+            self.last_result += line
+            if self.should_show_clear_line(line):
+                self.queue.put(line)
+
     def engine_cmd(self, *args: str) -> list[str]:
+        if getattr(sys, "frozen", False):
+            return [str(Path(sys.executable).resolve()), *args]
         python = RUNTIME_PYTHON_PATH if RUNTIME_PYTHON_PATH.exists() else Path(sys.executable)
         return [str(python), str(ENGINE_PATH), *args]
 
@@ -1852,4 +1891,8 @@ class ClearMeGui(DND_ROOT):
 
 
 if __name__ == "__main__":
+    if getattr(sys, "frozen", False) and len(sys.argv) > 1:
+        from AutoClearME import main as engine_main
+
+        raise SystemExit(engine_main(sys.argv[1:]))
     ClearMeGui().mainloop()

@@ -2,6 +2,11 @@
 setlocal
 cd /d "%~dp0"
 
+if exist "%~dp0AutoClearME.exe" (
+  start "" "%~dp0AutoClearME.exe"
+  exit /b 0
+)
+
 call :find_python
 if not defined PYTHON_EXE (
   echo Python was not found on this computer.

@@ -21,13 +21,18 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 
-KEEP_FILES = {"config.json", ".venv"}
-REQUIRED_FILES = [
+KEEP_FILES = {"config.json", ".venv", ".build-venv"}
+SOURCE_REQUIRED_FILES = [
     "Run.bat",
     "AutoClearME.py",
     "AutoClearME_GUI.py",
     "VERSION",
     str(Path("MEA") / "MEA.py"),
+]
+EXE_REQUIRED_FILES = [
+    "AutoClearME.exe",
+    "Run.bat",
+    "VERSION",
 ]
 PROGRESS_QUEUE: queue.Queue[tuple[str, object]] | None = None
 APP_USER_MODEL_ID = "mhqb365.AutoClearME.Update"
@@ -128,22 +133,24 @@ def payload_version(payload: Path) -> str:
 
 
 def find_payload_root(extract_dir: Path, expected_version: str = "") -> Path:
-    candidates = [p for p in extract_dir.rglob("Run.bat") if p.is_file()]
+    candidates = [p.parent for p in extract_dir.rglob("Run.bat") if p.is_file()]
+    candidates.extend(p.parent for p in extract_dir.rglob("AutoClearME.exe") if p.is_file())
     if not candidates:
-        raise RuntimeError("Run.bat was not found in the release ZIP.")
+        raise RuntimeError("AutoClearME.exe or Run.bat was not found in the release ZIP.")
+    candidates = sorted(set(candidates), key=lambda p: len(p.parts))
     expected = normalized_version(expected_version)
     if expected:
-        matching = [candidate for candidate in candidates if payload_version(candidate.parent) == expected]
+        matching = [candidate for candidate in candidates if payload_version(candidate) == expected]
         if not matching:
             raise RuntimeError(f"Release ZIP does not contain the expected version {expected}.")
         candidates = matching
-    candidates.sort(key=lambda p: len(p.parts))
-    return candidates[0].parent
+    return candidates[0]
 
 
 def validate_payload(payload: Path, expected_version: str = "") -> None:
     progress("Validating package...")
-    missing = [name for name in REQUIRED_FILES if not (payload / name).exists()]
+    required = EXE_REQUIRED_FILES if (payload / "AutoClearME.exe").exists() else SOURCE_REQUIRED_FILES
+    missing = [name for name in required if not (payload / name).exists()]
     if missing:
         raise RuntimeError("Release ZIP is missing required files: " + ", ".join(missing))
     expected = normalized_version(expected_version)
@@ -178,7 +185,8 @@ def replace_app(payload: Path, app_dir: Path) -> None:
 
 
 def relaunch(app_dir: Path) -> None:
-    runner = app_dir / "Run.bat"
+    exe = app_dir / "AutoClearME.exe"
+    runner = exe if exe.exists() else app_dir / "Run.bat"
     if not runner.exists():
         return
     progress("Restarting Auto Clear ME...")
@@ -189,12 +197,8 @@ def relaunch(app_dir: Path) -> None:
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = 0
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    subprocess.Popen(
-        ["cmd", "/c", str(runner)],
-        cwd=str(app_dir),
-        startupinfo=startupinfo,
-        creationflags=creationflags,
-    )
+    cmd = [str(runner)] if runner.suffix.lower() == ".exe" else ["cmd", "/c", str(runner)]
+    subprocess.Popen(cmd, cwd=str(app_dir), startupinfo=startupinfo, creationflags=creationflags)
 
 
 def run_update(args: argparse.Namespace) -> int:

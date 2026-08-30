@@ -44,8 +44,10 @@ You need Python 3.10 or newer to run the app. If you don't have it, download Pyt
 1. Open the [GitHub Releases](https://github.com/mhqb365/AutoClearME/releases)
 2. Download the ZIP file from the latest release
 3. Extract the ZIP file to any folder
-4. Double-click `Run.bat`
+4. Double-click `AutoClearME.exe` if the release includes it, or double-click `Run.bat`
 5. The Auto Clear ME interface will open
+
+To build the Windows exe yourself, double-click `BuildExe.bat`. The output will be created at `dist\AutoClearME\AutoClearME.exe`.
 
 ### How To Use
 
@@ -110,7 +112,7 @@ If a newer version is available, the app asks before updating. If the user agree
 2. Extract it to a temporary folder
 3. Replace the portable app files
 4. Keep the user's local `config.json`
-5. Run `Run.bat` again to reopen the app
+5. Reopen the app, preferring `AutoClearME.exe` when it is included and falling back to `Run.bat`
 
 ### Notes & Safety
 
@@ -166,8 +168,10 @@ Bạn cần có Python 3.10 hoặc mới hơn để chạy app. Nếu chưa có,
 1. Mở trang [GitHub Releases](https://github.com/mhqb365/AutoClearME/releases)
 2. Tải file ZIP của bản release mới nhất
 3. Giải nén file ZIP ra một thư mục bất kỳ
-4. Nhấp đúp vào `Run.bat`
+4. Nhấp đúp vào `AutoClearME.exe` nếu bản release có sẵn, hoặc nhấp đúp vào `Run.bat`
 5. Giao diện Auto Clear ME sẽ được mở lên
+
+Để tự build file exe trên Windows, nhấp đúp vào `BuildExe.bat`. Output sẽ nằm ở `dist\AutoClearME\AutoClearME.exe`.
 
 ### Cách Dùng
 
