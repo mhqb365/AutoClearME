@@ -66,6 +66,8 @@ DELL_EPPID_NAME = "D01EppidVar".encode("utf-16le") + b"\x00\x00"
 DELL_SERVICE_TAG_PATTERN = re.compile(rb"^[A-Z0-9]{7}$")
 DELL_MODEL_PATTERN = re.compile(r"^\$?(Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [A-Za-z0-9][A-Za-z0-9 -]{1,48})?$", re.IGNORECASE)
 DELL_MODEL_BYTES_PATTERN = re.compile(rb"\$?(?:Inspiron|Vostro|Latitude|Precision|XPS|OptiPlex|Alienware)(?: [A-Za-z0-9][A-Za-z0-9 -]{1,48})?", re.IGNORECASE)
+DELL_8FC8_INTEL_SIGNATURE = bytes.fromhex("5A A5 F0 0F 03")
+DELL_8FC8_SCAN_LIMIT = 0x160000
 DELL_8FC8_UNLOCK_SIGNATURES = (
     bytes.fromhex("00 FD AA 30 00 00 00 00 04 00 FF"),
     bytes.fromhex("00 FC AA 31 00 00 00 00 04 00 FF"),
@@ -2844,25 +2846,38 @@ def unlock_hp_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]
     return output, cleared_ranges
 
 
+def has_dell_8fc8_intel_signature(data: bytes | bytearray) -> bool:
+    return any(
+        data[offset:offset + len(DELL_8FC8_INTEL_SIGNATURE)] == DELL_8FC8_INTEL_SIGNATURE
+        for offset in range(0, max(0, min(0x1000, len(data) - len(DELL_8FC8_INTEL_SIGNATURE)) + 1))
+    )
+
+
+def dell_8fc8_pattern_offsets(data: bytes | bytearray, locked: bool) -> list[int]:
+    marker_byte = 0xAA if locked else 0x00
+    limit = min(DELL_8FC8_SCAN_LIMIT, len(data))
+    offsets: list[int] = []
+    for offset in range(0, max(0, limit - 8)):
+        if data[offset] != 0x00 or data[offset + 1] not in {0xFC, 0xFD} or data[offset + 2] != marker_byte:
+            continue
+        if data[offset + 4:offset + 7] == b"\x00\x00\x00" or data[offset + 5:offset + 8] == b"\x00\x00\x00":
+            offsets.append(offset)
+    return offsets
+
+
 def unlock_dell_8fc8_password(source: Path) -> tuple[Path | None, list[tuple[int, int]]]:
     data = bytearray(source.read_bytes())
+    if not has_dell_8fc8_intel_signature(data):
+        raise RuntimeError("Intel Flash Descriptor signature was not found. This file may not be a valid Dell BIOS/SPI dump.")
     cleared_ranges: list[tuple[int, int]] = []
-    signatures_found = 0
-    for signature in DELL_8FC8_UNLOCK_SIGNATURES:
-        marker_offset = data.find(signature)
-        while marker_offset >= 0:
-            signatures_found += 1
-            patch_offset = marker_offset + 2
-            if data[patch_offset] == 0xAA:
-                data[patch_offset] = 0x00
-                cleared_ranges.append((patch_offset, 1))
-            marker_offset = data.find(signature, marker_offset + len(signature))
-    if not signatures_found:
-        if any(signature in data for signature in DELL_8FC8_UNLOCKED_SIGNATURES):
-            return None, []
-        raise RuntimeError("Dell 8FC8 lock signature was not found. This file may not use the supported 8FC8 layout.")
+    for marker_offset in dell_8fc8_pattern_offsets(data, locked=True):
+        patch_offset = marker_offset + 2
+        data[patch_offset] = 0x00
+        cleared_ranges.append((patch_offset, 1))
     if not cleared_ranges:
-        return None, []
+        if dell_8fc8_pattern_offsets(data, locked=False):
+            return None, []
+        raise RuntimeError("Dell 8FC8/CF1B lock pattern was not found. This file may not use the supported 8FC8/CF1B layout.")
     cleared_ranges.sort()
     output = dell_8fc8_unlock_output_name(source)
     output.write_bytes(data)
@@ -3751,7 +3766,7 @@ def command_unlock_dell_8fc8(args: argparse.Namespace) -> int:
     failed = 0
     for value in args.input:
         path = Path(value).resolve()
-        print(f"[INFO] Unlock Dell 8FC8 in {log_path_name(path)}", flush=True)
+        print(f"[INFO] Unlock Dell 8FC8/CF1B in {log_path_name(path)}", flush=True)
         try:
             if not path.exists():
                 print(f"  File does not exist: {log_path_name(path)}", flush=True)
@@ -3766,7 +3781,7 @@ def command_unlock_dell_8fc8(args: argparse.Namespace) -> int:
                 print("  Already unlocked", flush=True)
         except Exception as exc:
             failed += 1
-            print(f"  Unlock Dell 8FC8 failed: {exc}", flush=True)
+            print(f"  Unlock Dell 8FC8/CF1B failed: {exc}", flush=True)
     return 0 if failed == 0 else 2
 
 
@@ -3949,8 +3964,8 @@ def build_parser() -> argparse.ArgumentParser:
     unlock_hp.add_argument("--input", action="append", required=True, help="BIOS dump to patch. Repeat for Dual BIOS.")
     unlock_hp.set_defaults(func=command_unlock_hp)
 
-    unlock_dell_8fc8 = sub.add_parser("unlock-dell-8fc8", help="Clear Dell 8FC8 BIOS lock.")
-    unlock_dell_8fc8.add_argument("--input", action="append", required=True, help="Dell 8FC8 BIOS dump to patch.")
+    unlock_dell_8fc8 = sub.add_parser("unlock-dell-8fc8", help="Clear Dell 8FC8/CF1B BIOS lock.")
+    unlock_dell_8fc8.add_argument("--input", action="append", required=True, help="Dell 8FC8/CF1B BIOS dump to patch.")
     unlock_dell_8fc8.set_defaults(func=command_unlock_dell_8fc8)
     return p
 

@@ -174,7 +174,8 @@ def main() -> int:
     dell_model_items = {(item.label, item.value) for item in find_dell_dmi(dell_model_block)}
     assert ("Model", "Inspiron 3505") in dell_model_items
     assert ("Model", "XPS]K") not in dell_model_items
-    locked_8fc8 = (
+    dell_8fc8_header = bytes.fromhex("5A A5 F0 0F 03") + b"\xFF" * 8
+    locked_8fc8 = dell_8fc8_header + (
         bytes.fromhex("00 FD AA 30 00 00 00 00 04 00 FF")
         + b"\xFF" * 8
         + bytes.fromhex("00 FC AA 31 00 00 00 00 04 00 FF")
@@ -186,20 +187,20 @@ def main() -> int:
         output, cleared_ranges = unlock_dell_8fc8_password(locked_path)
         assert output is not None
         assert output.read_bytes() == unlocked_8fc8
-        assert cleared_ranges == [(2, 1), (21, 1)]
+        assert cleared_ranges == [(len(dell_8fc8_header) + 2, 1), (len(dell_8fc8_header) + 21, 1)]
         unlocked_path = Path(temp_dir) / "unlocked.bin"
         unlocked_path.write_bytes(unlocked_8fc8)
         output, cleared_ranges = unlock_dell_8fc8_password(unlocked_path)
         assert output is None
         assert cleared_ranges == []
         service_tag_path = Path(temp_dir) / "service-tag-path.bin"
-        service_tag_path.write_bytes(bytes.fromhex("00 FD AA 31 00 00 00 00 00 00 FF"))
+        service_tag_path.write_bytes(dell_8fc8_header + bytes.fromhex("00 FD AA 31 00 00 00 00 00 00 FF"))
         output, cleared_ranges = unlock_dell_8fc8_password(service_tag_path)
         assert output is not None
-        assert output.read_bytes() == bytes.fromhex("00 FD 00 31 00 00 00 00 00 00 FF")
-        assert cleared_ranges == [(2, 1)]
+        assert output.read_bytes() == dell_8fc8_header + bytes.fromhex("00 FD 00 31 00 00 00 00 00 00 FF")
+        assert cleared_ranges == [(len(dell_8fc8_header) + 2, 1)]
         service_tag_unlocked_path = Path(temp_dir) / "service-tag-path-unlocked.bin"
-        service_tag_unlocked_path.write_bytes(bytes.fromhex("00 FD 00 31 00 00 00 00 00 00 FF"))
+        service_tag_unlocked_path.write_bytes(dell_8fc8_header + bytes.fromhex("00 FD 00 31 00 00 00 00 00 00 FF"))
         output, cleared_ranges = unlock_dell_8fc8_password(service_tag_unlocked_path)
         assert output is None
         assert cleared_ranges == []

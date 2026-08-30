@@ -151,7 +151,7 @@ class ClearMeGui(DND_ROOT):
             "oem_dmi_vendor": tk.StringVar(value="Acer"),
             "oem_dmi_target": tk.StringVar(),
             "oem_dmi_package": tk.StringVar(),
-            "unlock_vendor": tk.StringVar(value="Dell 8FC8"),
+            "unlock_vendor": tk.StringVar(value="Dell 8FC8/CF1B"),
             "unlock_bios_input": tk.StringVar(),
             "asus_dmi_package": tk.StringVar(),
             "asus_dmi_target": tk.StringVar(),
@@ -1143,13 +1143,14 @@ class ClearMeGui(DND_ROOT):
             self.log_info("Unlock skipped: please select BIOS file first")
             return
         configs = {
+            "Dell 8FC8": ("Dell 8FC8/CF1B", "unlock-dell-8fc8", "UNLOCK_DELL_8FC8_DONE"),
             "ACER": ("ACER", "unlock-acer", "UNLOCK_ACER_DONE"),
             "ASUS": ("ASUS", "unlock-asus", "UNLOCK_ASUS_DONE"),
             "HP": ("HP", "unlock-hp", "UNLOCK_HP_DONE"),
-            "Dell 8FC8": ("Dell 8FC8", "unlock-dell-8fc8", "UNLOCK_DELL_8FC8_DONE"),
+            "Dell 8FC8/CF1B": ("Dell 8FC8/CF1B", "unlock-dell-8fc8", "UNLOCK_DELL_8FC8_DONE"),
         }
-        vendor, command, done_tag = configs.get(self.vars["unlock_vendor"].get().strip(), configs["Dell 8FC8"])
-        if vendor == "Dell 8FC8" and not self.dell_8fc8_warning_shown:
+        vendor, command, done_tag = configs.get(self.vars["unlock_vendor"].get().strip(), configs["Dell 8FC8/CF1B"])
+        if vendor == "Dell 8FC8/CF1B" and not self.dell_8fc8_warning_shown:
             self.dell_8fc8_warning_shown = True
             self.log_info(self.t("dell_8fc8_warning"))
         self.unlock_selected_button.configure(state="disabled")
@@ -1162,7 +1163,7 @@ class ClearMeGui(DND_ROOT):
     def start_unlock_dell_8fc8(self) -> None:
         source = self.input_path("dell_8fc8_input")
         if not source:
-            self.log_info("Unlock Dell 8FC8 skipped: please select file first")
+            self.log_info("Unlock Dell 8FC8/CF1B skipped: please select file first")
             return
         self.dell_8fc8_button.configure(state="disabled")
         self.status_var.set(self.t("running"))
@@ -1446,7 +1447,7 @@ class ClearMeGui(DND_ROOT):
             self.handle_unlock_done(code, self.unlock_hp_button, "HP")
             return
         if tag == "UNLOCK_DELL_8FC8_DONE":
-            self.handle_unlock_done(code, self.dell_8fc8_button, "Dell 8FC8")
+            self.handle_unlock_done(code, self.dell_8fc8_button, "Dell 8FC8/CF1B")
             return
         if tag == "DMI_IMPORT_DONE":
             self.handle_dmi_import_done(code)
