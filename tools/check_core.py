@@ -203,6 +203,16 @@ def main() -> int:
         output, cleared_ranges = unlock_dell_8fc8_password(service_tag_unlocked_path)
         assert output is None
         assert cleared_ranges == []
+    dell_8fc8_locked_sample = Path("bios/c28v5y2.BIN")
+    dell_8fc8_unlocked_sample = Path("bios/T&C_patched_c28v5y2.BIN")
+    if dell_8fc8_locked_sample.exists() and dell_8fc8_unlocked_sample.exists():
+        with tempfile.TemporaryDirectory() as temp_dir:
+            locked_copy = Path(temp_dir) / dell_8fc8_locked_sample.name
+            locked_copy.write_bytes(dell_8fc8_locked_sample.read_bytes())
+            output, cleared_ranges = unlock_dell_8fc8_password(locked_copy)
+            assert output is not None
+            assert [offset for offset, length in cleared_ranges if length == 1] == [0x47003, 0x470BF, 0x48ECB, 0x48F77]
+            assert output.read_bytes() == dell_8fc8_unlocked_sample.read_bytes()
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_root = Path(temp_dir)
         winkey_bios = temp_root / "winkey.bin"
