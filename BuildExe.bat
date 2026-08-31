@@ -46,7 +46,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if exist "build" rmdir /s /q "build"
+if exist "build" rmdir /s /q "build" 2>nul
 if exist "dist\AutoClearME" rmdir /s /q "dist\AutoClearME"
 
 echo Building AutoClearME.exe...
@@ -72,6 +72,24 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Building AutoClearME_Update.exe...
+"%BUILD_PY%" -m PyInstaller ^
+  --noconfirm ^
+  --clean ^
+  --onefile ^
+  --windowed ^
+  --name AutoClearME_Update ^
+  --icon icon.ico ^
+  --add-data "icon.ico;." ^
+  AutoClearME_Update.py
+
+if errorlevel 1 (
+  echo Updater build failed.
+  pause
+  exit /b 1
+)
+
+if exist "dist\AutoClearME_Update.exe" copy /y "dist\AutoClearME_Update.exe" "dist\AutoClearME\" >nul
 if exist "config.example.json" copy /y "config.example.json" "dist\AutoClearME\" >nul
 if exist "VERSION" copy /y "VERSION" "dist\AutoClearME\" >nul
 if exist "Run.bat" copy /y "Run.bat" "dist\AutoClearME\" >nul
@@ -79,8 +97,13 @@ if exist "AutoClearME_Update.py" copy /y "AutoClearME_Update.py" "dist\AutoClear
 if exist "README.md" copy /y "README.md" "dist\AutoClearME\" >nul
 if exist "LICENSE" copy /y "LICENSE" "dist\AutoClearME\" >nul
 
-if exist "build" rmdir /s /q "build"
+if exist "build" (
+  ping 127.0.0.1 -n 2 >nul
+  rmdir /s /q "build" 2>nul
+)
 if exist "AutoClearME.spec" del /q "AutoClearME.spec"
+if exist "AutoClearME_Update.spec" del /q "AutoClearME_Update.spec"
+if exist "dist\AutoClearME_Update.exe" del /q "dist\AutoClearME_Update.exe"
 
 echo.
 echo Done: dist\AutoClearME\AutoClearME.exe

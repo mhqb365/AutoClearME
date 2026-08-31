@@ -38,6 +38,7 @@ ICON_PATH = (APP_DIR / "icon.ico") if (APP_DIR / "icon.ico").exists() else RESOU
 WINKEY_RE = re.compile(r"\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b", re.IGNORECASE)
 VERSION_PATH = (APP_DIR / "VERSION") if (APP_DIR / "VERSION").exists() else RESOURCE_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
+UPDATE_EXE_PATH = APP_DIR / "AutoClearME_Update.exe"
 RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
 APP_USER_MODEL_ID = "mhqb365.AutoClearME"
@@ -715,6 +716,25 @@ class ClearMeGui(DND_ROOT):
         return text
 
     def start_update(self, url: str, version: str) -> None:
+        if getattr(sys, "frozen", False) and UPDATE_EXE_PATH.exists():
+            update_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_Update_Launcher_"))
+            updater = update_dir / UPDATE_EXE_PATH.name
+            shutil.copy2(UPDATE_EXE_PATH, updater)
+            cmd = [
+                str(updater),
+                "--url",
+                url,
+                "--expected-version",
+                version,
+                "--app-dir",
+                str(APP_DIR),
+                "--parent-pid",
+                str(os.getpid()),
+            ]
+            subprocess.Popen(cmd, cwd=str(update_dir), **self.hidden_process_kwargs())
+            self.after(300, self.destroy)
+            return
+
         if not UPDATE_SCRIPT_PATH.exists():
             self.log_error("Updater script was not found.")
             return

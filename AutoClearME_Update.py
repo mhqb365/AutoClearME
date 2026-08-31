@@ -31,7 +31,6 @@ SOURCE_REQUIRED_FILES = [
 ]
 EXE_REQUIRED_FILES = [
     "AutoClearME.exe",
-    "Run.bat",
     "VERSION",
 ]
 PROGRESS_QUEUE: queue.Queue[tuple[str, object]] | None = None
