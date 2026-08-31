@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Auto Clear ME - helper for cleaning Intel CSME 11-20 BIOS/ME dumps.
+Auto Clear ME - helper for cleaning Intel ME/CSME/TXE BIOS/ME dumps.
 
 This tool automates the boring and risky parts of the Win-Raid clean ME flow:
 - identify input firmware with ME Analyzer when available
@@ -36,9 +36,11 @@ from typing import Iterable
 
 
 RGN_RE = re.compile(
-    r"(?P<version>\d+\.\d+(?:\.\d+){0,2}).*?(?P<sku>CON|COR|SLM|Consumer|Corporate|Slim|H|LP|N|1\.5MB|5MB|Ignition|SPS|CSTXE|TXE).*?PRD.*?RGN",
+    r"(?P<version>\d+\.\d+(?:\.\d+){0,2}).*?(?P<sku>CON|COR|SLM|Consumer|Corporate|Slim|ALL|AMT|TPM|H|LP|N|P|1\.375MB|1\.5MB|3MB|5MB|MD|IT|Ignition|SPS|CSTXE|TXE).*?PRD.*?RGN",
     re.IGNORECASE,
 )
+SUPPORTED_ME_MAJOR_MIN = 1
+SUPPORTED_ME_MAJOR_MAX = 20
 VERSION_RE = re.compile(r"(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<hotfix>\d+))?(?:\.(?P<build>\d+))?")
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
@@ -379,8 +381,19 @@ def normalize_sku(value: str) -> str:
         "slim lp": "slim lp",
         "slim n": "slim n",
         "slim p": "slim p",
+        "1.375mb": "1.375mb",
         "1.5mb": "1.5mb",
+        "3mb": "3mb",
         "5mb": "5mb",
+        "all": "all",
+        "amt": "amt",
+        "tpm": "tpm",
+        "md": "md",
+        "it": "it",
+        "cstxe": "cstxe",
+        "txe": "txe",
+        "sps": "sps",
+        "ignition": "ignition",
         "consumer": "consumer",
         "corporate": "corporate",
         "slim": "slim",
@@ -405,8 +418,18 @@ def display_sku(value: str) -> str:
         "n": "N",
         "p": "P",
         "npdm": "NPDM",
+        "1.375mb": "1.375MB",
         "1.5mb": "1.5MB",
+        "3mb": "3MB",
         "5mb": "5MB",
+        "all": "ALL",
+        "amt": "AMT",
+        "tpm": "TPM",
+        "md": "MD",
+        "it": "IT",
+        "cstxe": "CSTXE",
+        "txe": "TXE",
+        "sps": "SPS",
     }
     return " ".join(replacements.get(part, part.capitalize()) for part in normalized.split())
 
@@ -427,6 +450,16 @@ def sku_key(value: str) -> tuple[str, str]:
         family = "cstxe"
     elif "txe" in normalized:
         family = "txe"
+    elif "all" in normalized:
+        family = "all"
+    elif "amt" in normalized:
+        family = "amt"
+    elif "tpm" in normalized:
+        family = "tpm"
+    elif "md" in normalized:
+        family = "md"
+    elif "it" in normalized:
+        family = "it"
 
     parts = set(normalized.split())
     if "lp" in parts:
@@ -437,25 +470,46 @@ def sku_key(value: str) -> tuple[str, str]:
         platform = "n"
     elif "p" in parts:
         platform = "p"
+    elif "1.375mb" in parts:
+        platform = "1.375mb"
+    elif "1.5mb" in parts:
+        platform = "1.5mb"
+    elif "3mb" in parts:
+        platform = "3mb"
+    elif "5mb" in parts:
+        platform = "5mb"
     return family, platform
 
 
 def sku_matches(input_sku: str, candidate_sku: str) -> bool:
     input_family, input_platform = sku_key(input_sku)
     candidate_family, candidate_platform = sku_key(candidate_sku)
-    if not input_family or not candidate_family:
-        return False
-    if input_family != candidate_family:
-        return False
+    if input_family and candidate_family and input_family != candidate_family:
+        if "all" not in {input_family, candidate_family}:
+            return False
     if input_platform and candidate_platform and input_platform != candidate_platform:
+        return False
+    if not (input_family or input_platform) or not (candidate_family or candidate_platform):
         return False
     return True
 
 
 def sku_from_filename(name: str) -> str:
     tokens = [token for token in re.split(r"[^A-Z0-9]+", name.upper()) if token]
-    families = {"CON": "consumer", "COR": "corporate", "SLM": "slim"}
-    platforms = {"LP": "lp", "H": "h", "N": "n", "P": "p"}
+    families = {
+        "CON": "consumer",
+        "COR": "corporate",
+        "SLM": "slim",
+        "ALL": "all",
+        "AMT": "amt",
+        "TPM": "tpm",
+        "MD": "md",
+        "IT": "it",
+        "CSTXE": "cstxe",
+        "TXE": "txe",
+        "SPS": "sps",
+    }
+    platforms = {"LP": "lp", "H": "h", "N": "n", "P": "p", "1": "1.5mb", "3": "3mb", "5": "5mb"}
     for index, token in enumerate(tokens):
         if token not in families:
             continue
@@ -465,6 +519,9 @@ def sku_from_filename(name: str) -> str:
                 sku += " " + platforms[next_token]
                 break
         return sku
+    for size in ("1.375MB", "1.5MB", "3MB", "5MB"):
+        if size in name.upper():
+            return size.lower()
     return ""
 
 
@@ -2243,6 +2300,22 @@ def score_rgn(input_info: FirmwareInfo, candidate: Path) -> tuple[float, str]:
     return score, ",".join(reasons)
 
 
+def supported_me_major(info: FirmwareInfo) -> bool:
+    return info.major is not None and SUPPORTED_ME_MAJOR_MIN <= info.major <= SUPPORTED_ME_MAJOR_MAX
+
+
+def supported_me_range_text() -> str:
+    return f"{SUPPORTED_ME_MAJOR_MIN}-{SUPPORTED_ME_MAJOR_MAX}"
+
+
+def warn_legacy_me(info: FirmwareInfo) -> None:
+    if info.major is not None and info.major <= 10:
+        print(
+            "[INFO] Legacy Intel ME/TXE detected. Using direct ME region inject instead of FIT auto-build.",
+            flush=True,
+        )
+
+
 def find_best_rgn(repo: Path, input_info: FirmwareInfo) -> tuple[Path, list[dict]]:
     candidates = [
         p for p in repo.rglob("*")
@@ -2398,6 +2471,26 @@ def create_me_fs_repaired_input(input_image: Path, rgn_image: Path, workdir: Pat
     output = workdir / "input_me_fs_repaired.bin"
     output.write_bytes(data)
     return output, me_region
+
+
+def legacy_me_inject(
+    input_image: Path,
+    rgn_image: Path,
+    output_image: Path,
+) -> FlashRegion:
+    data = bytearray(input_image.read_bytes())
+    rgn = rgn_image.read_bytes()
+    me_region = intel_flash_descriptor_region(data, 2, "ME")
+    if len(rgn) > me_region.size:
+        raise RuntimeError(
+            f"Selected ME Region is larger than BIOS ME region ({len(rgn)} > {me_region.size} bytes)."
+        )
+    start = me_region.offset
+    end = start + me_region.size
+    data[start:end] = b"\xFF" * me_region.size
+    data[start:start + len(rgn)] = rgn
+    output_image.write_bytes(data)
+    return me_region
 
 
 def maybe_run_fitc(fitc: Path, workdir: Path, input_image: Path, me_region: Path | None, output_image: Path) -> dict:
@@ -3232,6 +3325,30 @@ def try_fit_build(
     return BuildResult(published_output, split_outputs, fitc_runs, fitc)
 
 
+def try_legacy_inject(
+    args: argparse.Namespace,
+    prep: PrepareInput,
+    workdir: Path,
+    input_copy: Path,
+    rgn_copy: Path,
+) -> BuildResult:
+    output_source = prep.source_image or prep.image
+    work_output = clearme_output_name(output_source, workdir)
+    print("[5/5] Legacy ME/TXE inject: replacing BIOS ME region directly...", flush=True)
+    me_region = legacy_me_inject(input_copy, rgn_copy, work_output)
+    print(
+        f"[5/5] ME region offset: 0x{me_region.offset:X}-0x{me_region.offset + me_region.size:X}, "
+        f"RGN size: {rgn_copy.stat().st_size} bytes",
+        flush=True,
+    )
+    published_output = publish_clearme_output(work_output, output_source, prep.out_root)
+    split_outputs: list[str] = []
+    if args.dual_split:
+        split_outputs = split_cleared_output(args, published_output, prep)
+        published_output = None
+    return BuildResult(published_output, split_outputs, [], None)
+
+
 def remove_temp_input(prep: PrepareInput) -> None:
     if prep.temp_merged_input and prep.temp_merged_input.exists():
         prep.temp_merged_input.unlink()
@@ -3245,25 +3362,31 @@ def command_prepare(args: argparse.Namespace) -> int:
     fitc_value = pick_arg(args, config, "fitc_root")
     out_value = pick_arg(args, config, "out")
     mea_value = pick_arg(args, config, "mea")
-    require_config_values(csme_repo=repo_value, fitc_root=fitc_value)
+    require_config_values(csme_repo=repo_value)
     repo = Path(repo_value).resolve()
-    fitc_root = Path(fitc_value).resolve()
+    fitc_root = Path(fitc_value).resolve() if fitc_value else repo
     prep = prepare_input(args, out_value)
     mea = resolve_mea(mea_value, repo, fitc_root)
     info = prepare_firmware_info(args, prep.image, mea)
-    if info.major is None or info.major < 11 or info.major > 20:
-        raise RuntimeError(f"Input CSME major version must be 11-20, got: {info.version or 'unknown'}")
+    if not supported_me_major(info):
+        raise RuntimeError(f"Input Intel ME/CSME/TXE major version must be {supported_me_range_text()}, got: {info.version or 'unknown'}")
 
-    print(f"[2/5] Detected CSME {info.version}, SKU: {display_sku(info.sku) or 'unknown'}", flush=True)
+    print(f"[2/5] Detected Intel ME/CSME/TXE {info.version}, SKU: {display_sku(info.sku) or 'unknown'}", flush=True)
+    warn_legacy_me(info)
     rgn, ranked = matching_rgn(args, repo, info)
     print(f"[4/5] Selected RGN: {log_path_name(rgn)}", flush=True)
-    fitc_candidates = ranked_fit_candidates(args, fitc_root, info)
-    fitc = fitc_candidates[0] if fitc_candidates else None
     stamp = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     work_source = prep.source_image or prep.image
     workdir = prep.out_root / f"{work_source.stem}_clearme_{stamp}"
     workdir.mkdir(parents=True, exist_ok=False)
     input_copy, rgn_copy = copy_inputs(workdir, prep.image, rgn)
+    legacy_mode = info.major is not None and info.major <= 10
+    if legacy_mode:
+        fitc_candidates = []
+    else:
+        require_config_values(fitc_root=fitc_value)
+        fitc_candidates = ranked_fit_candidates(args, fitc_root, info)
+    fitc = fitc_candidates[0] if fitc_candidates else None
 
     manifest = {
         "input": str(prep.image),
@@ -3275,11 +3398,15 @@ def command_prepare(args: argparse.Namespace) -> int:
         "mea": str(mea),
         "detected": asdict(info),
         "rgn_candidates": ranked,
+        "mode": "legacy-inject" if legacy_mode else "fit",
     }
     (workdir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    write_manual_steps(workdir, fitc)
 
-    result = try_fit_build(args, prep, workdir, input_copy, rgn_copy, fitc_candidates)
+    if legacy_mode:
+        result = try_legacy_inject(args, prep, workdir, input_copy, rgn_copy)
+    else:
+        write_manual_steps(workdir, fitc)
+        result = try_fit_build(args, prep, workdir, input_copy, rgn_copy, fitc_candidates)
     if result.published_output or result.split_outputs:
         manifest["fitc"] = str(result.fitc)
         manifest["published_output"] = str(result.published_output) if result.published_output else ""
@@ -3358,11 +3485,12 @@ def command_analyze(args: argparse.Namespace) -> int:
         info = analyze_with_mea(mea, image)
         if not info.version or info.major is None:
             raise RuntimeError(
-                "ME Analyzer could not detect CSME information in this file. "
+                "ME Analyzer could not detect Intel ME/CSME/TXE information in this file. "
                 "Check that the selected file is a full BIOS/SPI dump or ME region."
             )
-        if info.major < 11 or info.major > 20:
-            raise RuntimeError(f"Input CSME major version must be 11-20, got: {info.version}")
+        if not supported_me_major(info):
+            raise RuntimeError(f"Input Intel ME/CSME/TXE major version must be {supported_me_range_text()}, got: {info.version}")
+        warn_legacy_me(info)
         info.bios_vendor, info.bios_version = detect_bios_version(image.read_bytes())
         print(f"[ANALYZE] Version: {info.version or 'unknown'}", flush=True)
         print(f"[ANALYZE] BIOS Version: {info.bios_version or 'not detected'}", flush=True)
@@ -3831,14 +3959,14 @@ def command_split_bios(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Automate Intel CSME 11-20 clean ME preparation.")
+    p = argparse.ArgumentParser(description="Automate Intel ME/CSME/TXE clean ME preparation.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     prep = sub.add_parser("prepare", help="Analyze input, select matching RGN, create FIT workspace.")
     prep.add_argument("--input", help="Dumped full SPI/BIOS image or ME region.")
     prep.add_argument("--config", help="Path to config.json. Defaults to config.json next to this script.")
     prep.add_argument("--repo", help="ME Region root folder. Overrides config csme_repo.")
-    prep.add_argument("--fit-root", dest="fitc_root", metavar="FIT_ROOT", help="Root folder containing FIT tools 11-20. Overrides config fit_root.")
+    prep.add_argument("--fit-root", dest="fitc_root", metavar="FIT_ROOT", help="Root folder containing FIT tools. Overrides config fit_root.")
     prep.add_argument("--fitc-root", dest="fitc_root", help=argparse.SUPPRESS)
     prep.add_argument("--mea", help="Path to MEA.py, MEA.exe, or ME Analyzer.exe.")
     prep.add_argument("--out", help="Output jobs folder. Overrides config out.")

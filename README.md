@@ -6,13 +6,14 @@
 
 English | [Tiếng Việt](#tiếng-việt)
 
-A tool to help clear ME BIOS 11+
+A tool to help clear Intel ME/CSME/TXE BIOS
 
 The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matching ME Region and Flash Image Tool (FIT) version. The cleaned BIOS file is saved with the `_CLEARME` suffix, and the original BIOS dump is never modified or overwritten
 
 ### Features
 
-- Supports ME BIOS 11+
+- Supports Intel ME/CSME/TXE firmware, including legacy ME 10 and older when a matching ME Region file is available
+- Uses direct legacy ME/TXE injection for ME 10 and older, without requiring FIT auto-build
 - Automatically analyzes BIOS dumps with ME Analyzer
 - Suggests matching ME Region and FIT versions
 - Automatically tries the remaining compatible FIT versions if the first one fails
@@ -130,13 +131,14 @@ MIT
 
 [English](#english) | Tiếng Việt
 
-Công cụ hỗ trợ clear ME BIOS 11+
+Công cụ hỗ trợ clear Intel ME/CSME/TXE BIOS
 
 App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME Region và Flash Image Tool (FIT) phù hợp. BIOS đã clear có hậu tố `_CLEARME`, BIOS dump gốc không bị chỉnh sửa hoặc ghi đè
 
 ### Tính Năng
 
-- Hỗ trợ ME BIOS 11+
+- Hỗ trợ Intel ME/CSME/TXE, bao gồm ME 10 trở về trước khi có đủ ME Region phù hợp
+- Dùng legacy ME/TXE inject trực tiếp cho ME 10 trở về trước, không cần FIT auto-build
 - Tự động phân tích BIOS dump bằng ME Analyzer
 - Đề xuất ME Region và FIT phù hợp
 - Tự động thử các bản FIT phù hợp còn lại nếu bản đầu tiên thất bại
