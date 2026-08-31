@@ -21,7 +21,7 @@ The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matc
 - Saves the cleaned BIOS next to the original input file with the `_CLEARME` suffix
 - Merges two BIOS files in selected order and trims trailing dump metadata automatically
 - Splits a merged BIOS image by user-entered BIOS 1 and BIOS 2 sizes
-- Finds plaintext Windows product keys, shows their start/end offsets, and patches a new key into BIOS
+- Finds MSDM/plaintext Windows product keys, shows their start/end offsets, and patches a new key into BIOS
 - Finds, exports, and imports whole DMI blocks for Acer, ASUS, Dell, HP, and Lenovo
 - Supports vendor BIOS password unlock helpers for Acer, ASUS, HP, and Dell 8FC8/CF1B
 - Dell 8FC8/CF1B unlock can also patch supported dumps to allow Service Tag re-entry

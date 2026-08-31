@@ -3559,7 +3559,7 @@ def command_winkey(args: argparse.Namespace) -> int:
                 continue
             candidates = find_winkeys(path.read_bytes())
             if not candidates:
-                print("  No plaintext Windows product key candidate found", flush=True)
+                print("  No MSDM/plaintext Windows product key candidate found", flush=True)
                 continue
             for candidate in candidates:
                 print(format_winkey_candidate(candidate), flush=True)
