@@ -5,7 +5,7 @@ cd /d "%~dp0"
 call :find_python
 if not defined PYTHON_EXE (
   echo Python was not found on this computer.
-  echo Install Python 3.10 or newer, then run BuildExe.bat again.
+  echo Install Python 3.10 or newer, then run Build.bat again.
   pause
   exit /b 1
 )
@@ -71,6 +71,7 @@ echo Building AutoClearME.exe...
   --add-data "languages.json;." ^
   --add-data "VERSION;." ^
   --add-data "icon.ico;." ^
+  --add-data "icon.png;." ^
   --add-data "MEAnalyzer;MEAnalyzer" ^
   --hidden-import AutoClearME ^
   --hidden-import tkinterdnd2 ^

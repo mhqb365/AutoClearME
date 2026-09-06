@@ -35,6 +35,7 @@ RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 CONFIG_PATH = APP_DIR / "config.json"
 ENGINE_PATH = APP_DIR / "AutoClearME.py"
 ICON_PATH = (APP_DIR / "icon.ico") if (APP_DIR / "icon.ico").exists() else RESOURCE_DIR / "icon.ico"
+ABOUT_ICON_PATH = (APP_DIR / "icon.png") if (APP_DIR / "icon.png").exists() else RESOURCE_DIR / "icon.png"
 WINKEY_RE = re.compile(r"\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b", re.IGNORECASE)
 VERSION_PATH = (APP_DIR / "VERSION") if (APP_DIR / "VERSION").exists() else RESOURCE_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
@@ -819,7 +820,66 @@ class ClearMeGui(DND_ROOT):
         return self.console_python()
 
     def open_about(self) -> None:
-        webbrowser.open("https://github.com/mhqb365/AutoClearME")
+        win = tk.Toplevel(self)
+        apply_window_icon(win)
+        win.title(self.t("about"))
+        win.transient(self)
+        win.resizable(False, False)
+
+        frame = ttk.Frame(win, padding=20)
+        frame.grid(row=0, column=0, sticky="nsew")
+
+        top = ttk.Frame(frame)
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(1, weight=1)
+        logo_frame = ttk.Frame(top, width=70, height=96)
+        logo_frame.grid(row=0, column=0, sticky="ns", padx=(0, 20))
+        logo_frame.grid_propagate(False)
+        logo_frame.rowconfigure(0, weight=1)
+        logo_frame.rowconfigure(2, weight=1)
+
+        if ABOUT_ICON_PATH.exists():
+            try:
+                logo = tk.PhotoImage(file=str(ABOUT_ICON_PATH), master=win)
+                if logo.width() > 56 or logo.height() > 56:
+                    logo = logo.subsample(max(1, logo.width() // 56), max(1, logo.height() // 56))
+                self.about_logo = logo
+                ttk.Label(logo_frame, image=logo).grid(row=1, column=0)
+            except tk.TclError:
+                ttk.Label(logo_frame, text="ACM", font=("Segoe UI", 16, "bold")).grid(row=1, column=0)
+        else:
+            ttk.Label(logo_frame, text="ACM", font=("Segoe UI", 16, "bold")).grid(row=1, column=0)
+
+        text_frame = ttk.Frame(top)
+        text_frame.grid(row=0, column=1, sticky="w")
+        ttk.Label(text_frame, text=f"Auto Clear ME v{app_version()}", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            text_frame,
+            text="A tool to help Clear ME BIOS and more!",
+            wraplength=330,
+            justify="left",
+        ).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(
+            text_frame,
+            text="Supports Clear ME/CSME/TXE, DMI, Win Key, BIOS Unlock, Merge/Split BIOS and Vendor Extract",
+            wraplength=330,
+            justify="left",
+        ).grid(row=2, column=0, sticky="w", pady=(12, 0))
+
+        separator = ttk.Separator(frame)
+        separator.grid(row=1, column=0, sticky="ew", pady=(18, 12))
+        ttk.Label(frame, text="© 2026 mhqb365 · Open Source · MIT License").grid(row=2, column=0, sticky="w")
+
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=3, column=0, sticky="e", pady=(16, 0))
+        ttk.Button(buttons, text="Source Code", command=lambda: webbrowser.open("https://github.com/mhqb365/AutoClearME")).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text="Author", command=lambda: webbrowser.open("https://mhqb365.com")).grid(row=0, column=1)
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        win.grab_set()
 
     def pick_folder(self, key: str) -> None:
         initial = self.vars[key].get() or str(Path.home())
