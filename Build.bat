@@ -100,7 +100,9 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if exist "dist\AutoClearME_Update.exe" copy /y "dist\AutoClearME_Update.exe" "%BUILD_OUT%\" >nul
+if exist "dist\AutoClearME_Update.exe" (
+  copy /y "dist\AutoClearME_Update.exe" "%BUILD_OUT%\_internal\" >nul
+)
 if exist "config.example.json" copy /y "config.example.json" "%BUILD_OUT%\" >nul
 if exist "VERSION" copy /y "VERSION" "%BUILD_OUT%\" >nul
 if exist "README.md" copy /y "README.md" "%BUILD_OUT%\" >nul

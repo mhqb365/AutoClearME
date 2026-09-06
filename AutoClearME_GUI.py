@@ -38,7 +38,11 @@ ICON_PATH = (APP_DIR / "icon.ico") if (APP_DIR / "icon.ico").exists() else RESOU
 WINKEY_RE = re.compile(r"\b[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}\b", re.IGNORECASE)
 VERSION_PATH = (APP_DIR / "VERSION") if (APP_DIR / "VERSION").exists() else RESOURCE_DIR / "VERSION"
 UPDATE_SCRIPT_PATH = APP_DIR / "AutoClearME_Update.py"
-UPDATE_EXE_PATH = APP_DIR / "AutoClearME_Update.exe"
+UPDATE_EXE_PATHS = [
+    APP_DIR / "_internal" / "AutoClearME_Update.exe",
+    APP_DIR / "Tools" / "AutoClearME_Update.exe",
+    APP_DIR / "AutoClearME_Update.exe",
+]
 RUNTIME_PYTHON_PATH = APP_DIR / "Runtime" / "Python" / "python.exe"
 GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/mhqb365/AutoClearME/releases/latest"
 APP_USER_MODEL_ID = "mhqb365.AutoClearME"
@@ -711,11 +715,45 @@ class ClearMeGui(DND_ROOT):
         message = self.t("update_available_message").format(version=version)
         changelog = self.format_changelog(info.get("changelog", ""))
         if changelog:
-            message = f"{message}\n\n{self.t('changelog')}:\n\n{changelog}"
-        if not messagebox.askyesno(self.t("update_available_title"), message, parent=self):
+            message = f"{message}\n\n{self.t('changelog')}:\n{changelog}"
+        if not self.confirm_update_dialog(message):
             return
         self.log_info(self.t("update_starting"))
         self.start_update(url, version)
+
+    def confirm_update_dialog(self, message: str) -> bool:
+        result = tk.BooleanVar(self, value=False)
+        win = tk.Toplevel(self)
+        win.title(self.t("update_available_title"))
+        apply_window_icon(win)
+        win.transient(self)
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+
+        body = ttk.Frame(win, padding=(22, 18, 18, 14))
+        body.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(body, text=message, wraplength=360, justify="left").grid(row=0, column=0, sticky="w")
+
+        buttons = ttk.Frame(win, padding=(0, 10, 16, 14))
+        buttons.grid(row=1, column=0, sticky="ew")
+        buttons.columnconfigure(0, weight=1)
+
+        def choose(value: bool) -> None:
+            result.set(value)
+            win.destroy()
+
+        yes = ttk.Button(buttons, text="Yes", command=lambda: choose(True), width=10)
+        yes.grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(buttons, text="No", command=lambda: choose(False), width=10).grid(row=0, column=2)
+        yes.focus_set()
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        win.grab_set()
+        self.wait_window(win)
+        return bool(result.get())
 
     def format_changelog(self, value: object) -> str:
         lines = [line.strip() for line in str(value or "").replace("\r\n", "\n").splitlines()]
@@ -728,10 +766,11 @@ class ClearMeGui(DND_ROOT):
         return text
 
     def start_update(self, url: str, version: str) -> None:
-        if getattr(sys, "frozen", False) and UPDATE_EXE_PATH.exists():
+        update_exe = next((path for path in UPDATE_EXE_PATHS if path.exists()), None)
+        if getattr(sys, "frozen", False) and update_exe is not None:
             update_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_Update_Launcher_"))
-            updater = update_dir / UPDATE_EXE_PATH.name
-            shutil.copy2(UPDATE_EXE_PATH, updater)
+            updater = update_dir / update_exe.name
+            shutil.copy2(update_exe, updater)
             cmd = [
                 str(updater),
                 "--url",
