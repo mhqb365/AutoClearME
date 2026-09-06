@@ -60,7 +60,7 @@ echo Building AutoClearME.exe...
   --add-data "languages.json;." ^
   --add-data "VERSION;." ^
   --add-data "icon.ico;." ^
-  --add-data "MEA;MEA" ^
+  --add-data "MEAnalyzer;MEAnalyzer" ^
   --hidden-import AutoClearME ^
   --hidden-import tkinterdnd2 ^
   --collect-all biosutilities ^

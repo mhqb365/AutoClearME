@@ -27,7 +27,7 @@ SOURCE_REQUIRED_FILES = [
     "AutoClearME.py",
     "AutoClearME_GUI.py",
     "VERSION",
-    str(Path("MEA") / "MEA.py"),
+    str(Path("MEAnalyzer") / "MEA.py"),
 ]
 EXE_REQUIRED_FILES = [
     "AutoClearME.exe",

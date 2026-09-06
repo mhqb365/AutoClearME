@@ -45,7 +45,16 @@ VERSION_RE = re.compile(r"(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<hotfix>\d+))?(?
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", APP_DIR))
 DEFAULT_CONFIG = APP_DIR / "config.json"
-LOCAL_MEA = (APP_DIR / "MEA" / "MEA.py") if (APP_DIR / "MEA" / "MEA.py").exists() else RESOURCE_DIR / "MEA" / "MEA.py"
+LOCAL_MEA = (
+    APP_DIR / "MEAnalyzer" / "MEA.py"
+    if (APP_DIR / "MEAnalyzer" / "MEA.py").exists()
+    else RESOURCE_DIR / "MEAnalyzer" / "MEA.py"
+)
+LEGACY_LOCAL_MEA = (
+    APP_DIR / "MEA" / "MEA.py"
+    if (APP_DIR / "MEA" / "MEA.py").exists()
+    else RESOURCE_DIR / "MEA" / "MEA.py"
+)
 MEA_PYTHON_PACKAGES = ("colorama", "crccheck", "pltable")
 RUNTIME_PYTHON = APP_DIR / "Runtime" / "Python" / "python.exe"
 ASUS_AMITSE_MARKER = bytes.fromhex("41 4D 49 54 53 45 53 65 74 75 70 00")
@@ -207,6 +216,8 @@ def python_for_scripts() -> str:
 def find_me_analyzer(search_roots: list[Path]) -> Path | None:
     if LOCAL_MEA.exists():
         return LOCAL_MEA
+    if LEGACY_LOCAL_MEA.exists():
+        return LEGACY_LOCAL_MEA
     names = ["MEA.exe", "ME Analyzer.exe", "MEA.py"]
     for root in search_roots:
         if root.exists():
@@ -3438,7 +3449,7 @@ def command_verify(args: argparse.Namespace) -> int:
     configured_mea = Path(mea_value).resolve() if mea_value else None
     mea = configured_mea if configured_mea and configured_mea.exists() else find_me_analyzer([Path.cwd()])
     if not mea:
-        raise ValueError("ME Analyzer not found. Keep MEA/MEA.py in the project, edit config.json, or pass --mea.")
+        raise ValueError("ME Analyzer not found. Keep MEAnalyzer/MEA.py in the project, edit config.json, or pass --mea.")
     before = analyze_with_mea(mea, Path(args.input).resolve())
     after = analyze_with_mea(mea, Path(args.output).resolve())
     ok = before.major == after.major and before.minor == after.minor
@@ -3478,7 +3489,7 @@ def command_analyze(args: argparse.Namespace) -> int:
         configured_mea = Path(mea_value).resolve() if mea_value else None
         mea = configured_mea if configured_mea and configured_mea.exists() else find_me_analyzer([Path.cwd()])
         if not mea:
-            raise ValueError("ME Analyzer not found. Keep MEA/MEA.py in the project, edit config.json, or pass --mea.")
+            raise ValueError("ME Analyzer not found. Keep MEAnalyzer/MEA.py in the project, edit config.json, or pass --mea.")
 
         print(f"[ANALYZE] Input: {log_path_name(image)}", flush=True)
         print(f"[ANALYZE] ME Analyzer: {log_path_name(mea)}", flush=True)
