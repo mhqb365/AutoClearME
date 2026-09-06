@@ -166,6 +166,7 @@ class ClearMeGui(DND_ROOT):
             "dell_dmi_target": tk.StringVar(),
             "dell_8fc8_input": tk.StringVar(),
             "dell_pfs_input": tk.StringVar(),
+            "hp_extract_input": tk.StringVar(),
             "rgn_choice": tk.StringVar(),
             "fit_choice": tk.StringVar(),
             "chip1_size": tk.StringVar(value="8MB"),
@@ -326,6 +327,15 @@ class ClearMeGui(DND_ROOT):
         self.dell_pfs_button = ttk.Button(dell_pfs_actions, command=self.start_dell_pfs_extract)
         self.dell_pfs_button.grid(row=0, column=0)
         tabs.add(dell_pfs_tab, text="")
+
+        hp_extract_tab = ttk.Frame(tabs, padding=10)
+        hp_extract_tab.columnconfigure(1, weight=1)
+        self.path_row(hp_extract_tab, 0, "hp_extract_file", "hp_extract_input", self.pick_hp_extract_input, clearable=True)
+        hp_extract_actions = ttk.Frame(hp_extract_tab)
+        hp_extract_actions.grid(row=1, column=0, columnspan=4, sticky="e", pady=(8, 0))
+        self.hp_extract_button = ttk.Button(hp_extract_actions, command=self.start_hp_extract)
+        self.hp_extract_button.grid(row=0, column=0)
+        tabs.add(hp_extract_tab, text="")
         self.tabs = tabs
         self.rebuild_feature_menu()
         self.unlock_acer_button = self.unlock_acer_tab_button
@@ -516,13 +526,14 @@ class ClearMeGui(DND_ROOT):
             "unlock_asus_tab",
             "unlock_hp_tab",
             "dell_pfs_tab",
+            "hp_extract_tab",
         ]
         self.feature_menu_groups = [
             (None, [(0, "single_bios"), (1, "dual_bios"), (2, "merge_bios"), (3, "split_bios"), (4, "winkey_tab")]),
             ("acer_group", [(5, "acer_dmi_tab"), (11, "unlock_acer_tab")]),
             ("asus_group", [(6, "asus_dmi_tab"), (12, "unlock_asus_tab")]),
             ("dell_group", [(14, "dell_pfs_tab"), (7, "dell_dmi_tab"), (10, "dell_8fc8_unlock_tab")]),
-            ("hp_group", [(8, "hp_dmi_tab"), (13, "unlock_hp_tab")]),
+            ("hp_group", [(15, "hp_extract_tab"), (8, "hp_dmi_tab"), (13, "unlock_hp_tab")]),
             ("lenovo_group", [(9, "lenovo_dmi_tab")]),
         ]
         self.feature_menu.delete(0, "end")
@@ -609,6 +620,7 @@ class ClearMeGui(DND_ROOT):
         self.unlock_asus_tab_button.configure(text=self.t("unlock_asus"))
         self.unlock_hp_tab_button.configure(text=self.t("unlock_hp"))
         self.dell_pfs_button.configure(text=self.t("extract_dell_pfs"))
+        self.hp_extract_button.configure(text=self.t("extract_hp"))
         self.clear_button.configure(text=self.t("clear_me"))
         self.ui["stop_button"].configure(text=self.t("stop"))
         self.ui["save_log_button"].configure(text=self.t("save_log"))
@@ -816,6 +828,15 @@ class ClearMeGui(DND_ROOT):
         path = filedialog.askopenfilename(
             title=self.t("dell_pfs_file"),
             filetypes=[("Dell update file", "*.exe *.bin *.pfs *.pkg *.cab *.rcv *.txt"), ("All files", "*.*")],
+        )
+        if path:
+            self.input_paths[key] = path
+            self.vars[key].set(Path(path).name)
+
+    def pick_hp_extract_input(self, key: str) -> None:
+        path = filedialog.askopenfilename(
+            title=self.t("hp_extract_file"),
+            filetypes=[("HP BIOS update file", "*.exe *.bin *.fd *.rom"), ("All files", "*.*")],
         )
         if path:
             self.input_paths[key] = path
@@ -1055,13 +1076,24 @@ class ClearMeGui(DND_ROOT):
     def start_dell_pfs_extract(self) -> None:
         source = self.input_path("dell_pfs_input")
         if not source:
-            self.log_info("Extract Dell PFS skipped: please select file first")
+            self.log_info("Extract Dell skipped: please select file first")
             return
         self.dell_pfs_button.configure(state="disabled")
         self.status_var.set(self.t("running"))
         self.last_result = ""
-        cmd = self.engine_cmd("dell-pfs-extract", "--input", source)
+        cmd = self.engine_cmd("dell-extract", "--input", source)
         self.start_command(cmd, "DELL_PFS_DONE")
+
+    def start_hp_extract(self) -> None:
+        source = self.input_path("hp_extract_input")
+        if not source:
+            self.log_info("Extract HP skipped: please select file first")
+            return
+        self.hp_extract_button.configure(state="disabled")
+        self.status_var.set(self.t("running"))
+        self.last_result = ""
+        cmd = self.engine_cmd("hp-extract", "--input", source)
+        self.start_command(cmd, "HP_EXTRACT_DONE")
 
     def start_find_oem_dmi(self, vendor: str, command: str, target_key: str, button: ttk.Button, done_tag: str) -> None:
         self.last_dmi_transfer_result = ""
@@ -1361,7 +1393,7 @@ class ClearMeGui(DND_ROOT):
         elif done_tag in {"ASUS_DMI_DONE", "LENOVO_DMI_DONE", "HP_DMI_DONE", "ACER_DMI_DONE", "DELL_DMI_DONE", "DMI_EXPORT_DONE"}:
             self.last_dmi_transfer_result += line
             self.queue.put(line)
-        elif done_tag in {"DELL_PFS_DONE", "WINKEY_PATCH_DONE", "BIOS_TOOL_DONE"}:
+        elif done_tag in {"DELL_PFS_DONE", "HP_EXTRACT_DONE", "WINKEY_PATCH_DONE", "BIOS_TOOL_DONE"}:
             self.last_result += line
             self.queue.put(line)
         elif done_tag in {"UNLOCK_ASUS_DONE", "UNLOCK_ACER_DONE", "UNLOCK_HP_DONE", "UNLOCK_DELL_8FC8_DONE"}:
@@ -1475,6 +1507,9 @@ class ClearMeGui(DND_ROOT):
         if tag == "DELL_PFS_DONE":
             self.handle_dell_pfs_done(code)
             return
+        if tag == "HP_EXTRACT_DONE":
+            self.handle_hp_extract_done(code)
+            return
         if tag == "BIOS_TOOL_DONE":
             self.handle_bios_tool_done(code)
             return
@@ -1502,6 +1537,7 @@ class ClearMeGui(DND_ROOT):
             self.import_acer_dmi_button,
             self.import_dell_dmi_button,
             self.dell_pfs_button,
+            self.hp_extract_button,
         ):
             button.configure(state="normal")
 
@@ -1586,10 +1622,26 @@ class ClearMeGui(DND_ROOT):
         self.dell_pfs_button.configure(state="normal")
         self.status_var.set(self.t("export_complete") if code == 0 else self.t("error"))
         if code != 0:
-            self.log_error(f"Extract Dell PFS stopped with exit code {code}.")
+            self.log_error(f"Extract Dell stopped with exit code {code}.")
             return
         outputs = []
         source = Path(self.input_path("dell_pfs_input")).resolve()
+        for line in self.last_result.splitlines():
+            if line.strip().startswith("Output:"):
+                name = line.split(":", 1)[1].strip()
+                candidate = source.with_name(name)
+                if candidate.exists():
+                    outputs.append(candidate)
+        self.open_output_location(outputs)
+
+    def handle_hp_extract_done(self, code: int) -> None:
+        self.hp_extract_button.configure(state="normal")
+        self.status_var.set(self.t("export_complete") if code == 0 else self.t("error"))
+        if code != 0:
+            self.log_error(f"Extract HP stopped with exit code {code}.")
+            return
+        outputs = []
+        source = Path(self.input_path("hp_extract_input")).resolve()
         for line in self.last_result.splitlines():
             if line.strip().startswith("Output:"):
                 name = line.split(":", 1)[1].strip()

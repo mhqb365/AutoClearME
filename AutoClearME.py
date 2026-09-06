@@ -3772,8 +3772,8 @@ def command_dell_dmi_export(args: argparse.Namespace) -> int:
 
 def command_dell_pfs_extract(args: argparse.Namespace) -> int:
     path = Path(args.input).resolve()
-    output = unique_output_path(path.with_name("DELL_PFS"))
-    print(f"[INFO] Extract Dell PFS from {log_path_name(path)}", flush=True)
+    output = unique_output_path(path.with_name("DELL_EXTRACT"))
+    print(f"[INFO] Extract Dell BIOS from {log_path_name(path)}", flush=True)
     try:
         if not path.exists():
             print(f"  File does not exist: {log_path_name(path)}", flush=True)
@@ -3803,7 +3803,205 @@ def command_dell_pfs_extract(args: argparse.Namespace) -> int:
         print(f"  Output: {log_path_name(output)}", flush=True)
         return 0
     except Exception as exc:
-        print(f"  Extract Dell PFS failed: {exc}", flush=True)
+        print(f"  Extract Dell BIOS failed: {exc}", flush=True)
+        return 2
+
+
+def first_mea_hex_size(text: str) -> int | None:
+    in_first_report = False
+    for line in text.splitlines():
+        clean = re.sub(r"\x1b\[[0-9;]*m", "", line)
+        clean = clean.replace(chr(0x2551), "|").replace(chr(0x2502), "|").strip(" |")
+        cells = [cell.strip() for cell in clean.split("|") if cell.strip()]
+        if len(cells) >= 2 and cells[0].lower() == "family":
+            if in_first_report:
+                break
+            in_first_report = True
+        if in_first_report and len(cells) >= 2 and cells[0].lower() == "size":
+            match = re.search(r"0x[0-9A-Fa-f]+", cells[-1])
+            if match:
+                return int(match.group(0), 16)
+    return None
+
+
+def valid_cse_fpt(buffer: bytes, offset: int) -> bool:
+    if offset < 0 or offset + 0x40 > len(buffer) or buffer[offset:offset + 4] != b"$FPT":
+        return False
+    count = int.from_bytes(buffer[offset + 4:offset + 8], "little")
+    if count <= 0 or count > 128:
+        return False
+    table_end = offset + 0x20 + count * 0x20
+    if table_end > len(buffer):
+        return False
+    names = {
+        buffer[offset + 0x20 + index * 0x20:offset + 0x24 + index * 0x20].rstrip(b"\x00")
+        for index in range(count)
+    }
+    return bool({b"FTPR", b"NFTP", b"MFS"} & names)
+
+
+def find_hp_me_start(buffer: bytes) -> int | None:
+    pos = 0
+    while True:
+        marker = buffer.find(b"$FPT", pos)
+        if marker < 0:
+            return None
+        if valid_cse_fpt(buffer, marker):
+            start = marker - 0x10 if marker >= 0x10 and buffer[marker - 0x10:marker] == b"\xFF" * 0x10 else marker
+            return start
+        pos = marker + 1
+
+
+HP_DROM_LABELS = (
+    ("DROM", b"DROM    "),
+    ("ARC PARM", b"ARC PARM"),
+    ("EE_CIO", b"EE_CIO  "),
+    ("EE_PCIE", b"EE_PCIE "),
+    ("EE_PCIE_", b"EE_PCIE_"),
+    ("EE_DMA", b"EE_DMA  "),
+    ("EE_XHC_E", b"EE_XHC_E"),
+    ("EE_XHC", b"EE_XHC  "),
+    ("EE_USB_R", b"EE_USB_R"),
+    ("EE_DP", b"EE_DP   "),
+    ("EE_RESER", b"EE_RESER"),
+    ("EE_USB_A", b"EE_USB_A"),
+    ("EE_LC", b"EE_LC   "),
+    ("PATCHES", b"PATCHES "),
+    ("ARC CACH", b"ARC CACHE"),
+    ("CSS", b"CSS     "),
+    ("RSA+EXP", b"RSA+EXP "),
+    ("SEC DGST", b"SEC DGST"),
+    ("SOFTWARE", b"SOFTWARE_SECTION"),
+)
+
+
+def hp_drom_blocks(buffer: bytes, me_end: int) -> list[tuple[int, int, str]]:
+    found: list[tuple[int, str]] = []
+    for name, marker in HP_DROM_LABELS:
+        pos = max(0, me_end)
+        while True:
+            marker_offset = buffer.find(marker, pos)
+            if marker_offset < 0:
+                break
+            start = marker_offset - 0x10
+            if start >= me_end and buffer[start:marker_offset] == b"\xFF" * 0x10:
+                found.append((start, name))
+            pos = marker_offset + 1
+    found.sort(key=lambda item: item[0])
+    blocks: list[tuple[int, int, str]] = []
+    for index, (start, name) in enumerate(found):
+        end = found[index + 1][0] if index + 1 < len(found) else len(buffer)
+        if end > start:
+            blocks.append((start, end, name))
+    return blocks
+
+
+def hp_drom_output_name(output_dir: Path, name: str, used: dict[str, int]) -> str:
+    base = f"DROM_{name}.bin"
+    count = used.get(base, 0)
+    used[base] = count + 1
+    if count == 0:
+        return base
+    return f"{Path(base).stem} ({count + 1}).bin"
+
+
+def hp_bios_region_range(buffer: bytes, me_start: int) -> tuple[int, int]:
+    first_fv = buffer.find(b"_FVH")
+    if 0 <= first_fv < me_start and first_fv >= 0x1028:
+        start = first_fv - 0x1028
+    else:
+        start = 0
+    end = me_start - 0x120 if me_start - start > 0x120 else me_start
+    return start, end
+
+
+def trim_trailing_ff_range(buffer: bytes, start: int, end: int) -> int:
+    while end > start and buffer[end - 1] == 0xFF:
+        end -= 1
+    return end
+
+
+def extract_hp_regions(source: Path, output_dir: Path, mea: Path | None) -> list[Path]:
+    data = source.read_bytes()
+    start = find_hp_me_start(data)
+    if start is None:
+        return []
+    if not mea:
+        raise RuntimeError("ME Analyzer is required to determine HP ME region size.")
+    temp_dir = Path(tempfile.mkdtemp(prefix="AutoClearME_HP_ME_"))
+    try:
+        probe = temp_dir / "probe_me.bin"
+        probe.write_bytes(data[start:])
+        info = analyze_with_mea(mea, probe)
+        size = first_mea_hex_size(info.raw)
+        if not size:
+            raise RuntimeError("ME Analyzer did not report a usable ME region size.")
+        end = start + size
+        if end > len(data):
+            raise RuntimeError(f"Detected ME region is outside the HP image: 0x{start:X}-0x{end:X}.")
+        outputs: list[Path] = []
+        bios_start, bios_end = hp_bios_region_range(data, start)
+        bios_output = unique_output_path(output_dir / "BIOS Region.bin")
+        bios_output.write_bytes(data[bios_start:bios_end])
+        outputs.append(bios_output)
+        print(f"  BIOS Region: [0x{bios_start:X}, 0x{bios_end:X}] -> {bios_output.name}", flush=True)
+
+        me_end = trim_trailing_ff_range(data, start, end)
+        me_output = unique_output_path(output_dir / "Management Engine (ME).bin")
+        me_output.write_bytes(data[start:me_end])
+        outputs.append(me_output)
+        print(f"  Management Engine (ME): [0x{start:X}, 0x{me_end:X}] -> {me_output.name}", flush=True)
+
+        used_names: dict[str, int] = {}
+        for block_start, block_end, name in hp_drom_blocks(data, me_end):
+            block_name = hp_drom_output_name(output_dir, name, used_names)
+            block_output = unique_output_path(output_dir / block_name)
+            block_output.write_bytes(data[block_start:block_end])
+            outputs.append(block_output)
+            print(f"  DROM {name}: [0x{block_start:X}, 0x{block_end:X}] -> {block_output.name}", flush=True)
+        return outputs
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def run_hp_softpaq_extract(source: Path, output_dir: Path) -> list[Path]:
+    softpaq_dir = output_dir / source.stem
+    softpaq_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  SoftPaq extract: {softpaq_dir.name}", flush=True)
+    code, out = run([str(source), "/e", f"-f{softpaq_dir}", "/s"], cwd=source.parent)
+    if out.strip():
+        for line in out.splitlines():
+            if line.strip():
+                print(f"  {line}", flush=True)
+    if code != 0:
+        print(f"  SoftPaq extractor exited with code {code}; scanning extracted files anyway.", flush=True)
+    return [p for p in softpaq_dir.rglob("*.bin") if p.is_file()]
+
+
+def command_hp_extract(args: argparse.Namespace) -> int:
+    path = Path(args.input).resolve()
+    output = unique_output_path(path.with_name("HP_EXTRACT"))
+    print(f"[INFO] Extract HP BIOS from {log_path_name(path)}", flush=True)
+    try:
+        if not path.exists():
+            print(f"  File does not exist: {log_path_name(path)}", flush=True)
+            return 2
+        output.mkdir(parents=True, exist_ok=True)
+        mea_value = getattr(args, "mea", None)
+        mea = Path(mea_value).resolve() if mea_value else find_me_analyzer([APP_DIR, path.parent, Path.cwd()])
+        candidates = run_hp_softpaq_extract(path, output) if path.suffix.lower() == ".exe" else [path]
+        extracted: list[Path] = []
+        for candidate in candidates:
+            item_dir = output / candidate.stem
+            item_dir.mkdir(parents=True, exist_ok=True)
+            extracted.extend(extract_hp_regions(candidate, item_dir, mea))
+        if not extracted:
+            print("  HP firmware capsule with CSE ME region was not detected.", flush=True)
+            return 2
+        print(f"  Output: {log_path_name(output)}", flush=True)
+        return 0
+    except Exception as exc:
+        print(f"  Extract HP BIOS failed: {exc}", flush=True)
         return 2
 
 
@@ -4061,11 +4259,22 @@ def build_parser() -> argparse.ArgumentParser:
     dell_export.add_argument("--input", required=True, help="Source BIOS dump.")
     dell_export.set_defaults(func=command_dell_dmi_export)
 
-    dell_pfs = sub.add_parser("dell-pfs-extract", help="Extract Dell PFS/PKG/TXT/RCV update images.")
+    dell_extract = sub.add_parser("dell-extract", help="Extract Dell BIOS update/PFS/PKG/TXT/RCV images.")
+    dell_extract.add_argument("--input", required=True, help="Dell BIOS update/PFS/PKG/TXT/RCV image. Output goes to DELL_EXTRACT next to input.")
+    dell_extract.add_argument("--advanced", action="store_true", help="Enable BIOSUtilities advanced extraction.")
+    dell_extract.add_argument("--structure", action="store_true", help="Preserve BIOSUtilities structure output.")
+    dell_extract.set_defaults(func=command_dell_pfs_extract)
+
+    dell_pfs = sub.add_parser("dell-pfs-extract", help=argparse.SUPPRESS)
     dell_pfs.add_argument("--input", required=True, help="Dell BIOS update/PFS/PKG/TXT/RCV image. Output goes to DELL_PFS next to input.")
     dell_pfs.add_argument("--advanced", action="store_true", help="Enable BIOSUtilities advanced extraction.")
     dell_pfs.add_argument("--structure", action="store_true", help="Preserve BIOSUtilities structure output.")
     dell_pfs.set_defaults(func=command_dell_pfs_extract)
+
+    hp_extract = sub.add_parser("hp-extract", help="Extract HP BIOS/SoftPaq images.")
+    hp_extract.add_argument("--input", required=True, help="HP SoftPaq EXE or extracted HP firmware BIN.")
+    hp_extract.add_argument("--mea", help="Path to MEA.py, MEA.exe, or ME Analyzer.exe.")
+    hp_extract.set_defaults(func=command_hp_extract)
 
     for command_name, vendor, package_help in (
         ("lenovo-dmi-import", "Lenovo", "Lenovo DMI .lendmi package."),
