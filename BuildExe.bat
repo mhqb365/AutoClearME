@@ -20,6 +20,16 @@ if errorlevel 1 (
 
 set "BUILD_VENV=%~dp0.build-venv"
 set "BUILD_PY=%BUILD_VENV%\Scripts\python.exe"
+set "APP_VERSION="
+if exist "VERSION" (
+  for /f "usebackq tokens=* delims=" %%V in ("VERSION") do (
+    if not defined APP_VERSION set "APP_VERSION=%%V"
+  )
+)
+if not defined APP_VERSION set "APP_VERSION=dev"
+set "APP_DIR=AutoClearME_v%APP_VERSION%"
+set "BUILD_OUT=dist\AutoClearME"
+set "FINAL_OUT=dist\%APP_DIR%"
 
 if not exist "%BUILD_PY%" (
   echo Preparing build environment...
@@ -47,7 +57,8 @@ if errorlevel 1 (
 )
 
 if exist "build" rmdir /s /q "build" 2>nul
-if exist "dist\AutoClearME" rmdir /s /q "dist\AutoClearME"
+if exist "%BUILD_OUT%" rmdir /s /q "%BUILD_OUT%"
+if exist "%FINAL_OUT%" rmdir /s /q "%FINAL_OUT%"
 
 echo Building AutoClearME.exe...
 "%BUILD_PY%" -m PyInstaller ^
@@ -89,13 +100,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if exist "dist\AutoClearME_Update.exe" copy /y "dist\AutoClearME_Update.exe" "dist\AutoClearME\" >nul
-if exist "config.example.json" copy /y "config.example.json" "dist\AutoClearME\" >nul
-if exist "VERSION" copy /y "VERSION" "dist\AutoClearME\" >nul
-if exist "Run.bat" copy /y "Run.bat" "dist\AutoClearME\" >nul
-if exist "AutoClearME_Update.py" copy /y "AutoClearME_Update.py" "dist\AutoClearME\" >nul
-if exist "README.md" copy /y "README.md" "dist\AutoClearME\" >nul
-if exist "LICENSE" copy /y "LICENSE" "dist\AutoClearME\" >nul
+if exist "dist\AutoClearME_Update.exe" copy /y "dist\AutoClearME_Update.exe" "%BUILD_OUT%\" >nul
+if exist "config.example.json" copy /y "config.example.json" "%BUILD_OUT%\" >nul
+if exist "VERSION" copy /y "VERSION" "%BUILD_OUT%\" >nul
+if exist "README.md" copy /y "README.md" "%BUILD_OUT%\" >nul
+if exist "LICENSE" copy /y "LICENSE" "%BUILD_OUT%\" >nul
+
+move "%BUILD_OUT%" "%FINAL_OUT%" >nul
+if errorlevel 1 (
+  echo Failed to rename output folder to %APP_DIR%.
+  pause
+  exit /b 1
+)
 
 if exist "build" (
   ping 127.0.0.1 -n 2 >nul
@@ -106,7 +122,7 @@ if exist "AutoClearME_Update.spec" del /q "AutoClearME_Update.spec"
 if exist "dist\AutoClearME_Update.exe" del /q "dist\AutoClearME_Update.exe"
 
 echo.
-echo Done: dist\AutoClearME\AutoClearME.exe
+echo Done: %FINAL_OUT%\AutoClearME.exe
 echo Double click AutoClearME.exe to open the app.
 pause
 exit /b 0

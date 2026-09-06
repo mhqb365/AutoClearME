@@ -1,6 +1,7 @@
 # Local configuration
 config.json
-MEA/__CHECK__
+MEA/__CHECK__/
+MEAnalyzer/__CHECK__/
 
 # Python cache
 __pycache__/
@@ -41,3 +42,4 @@ GEMINI.md
 
 bios
 docs
+PROJECT_REVIEW.md

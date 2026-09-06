@@ -6,7 +6,7 @@
 
 English | [Tiếng Việt](#tiếng-việt)
 
-A tool to help clear Intel ME/CSME/TXE BIOS
+A tool to help Clear ME BIOS and more!
 
 The app uses ME Analyzer to analyze the selected BIOS dump, then suggests a matching ME Region and Flash Image Tool (FIT) version. The cleaned BIOS file is saved with the `_CLEARME` suffix, and the original BIOS dump is never modified or overwritten
 
@@ -132,7 +132,7 @@ MIT
 
 [English](#english) | Tiếng Việt
 
-Công cụ hỗ trợ clear Intel ME/CSME/TXE BIOS
+Công cụ hỗ trợ Clear ME BIOS và hơn thế nữa!
 
 App dùng ME Analyzer để phân tích BIOS dump đã chọn, đề xuất ME Region và Flash Image Tool (FIT) phù hợp. BIOS đã clear có hậu tố `_CLEARME`, BIOS dump gốc không bị chỉnh sửa hoặc ghi đè
 
