@@ -593,9 +593,11 @@ class ClearMeGui(DND_ROOT):
         lang = LANG_LABELS.get(self.lang_var.get(), "en")
         return TEXT.get(lang, TEXT["en"]).get(key, TEXT["en"].get(key, key))
 
-    def on_language_changed(self, _event=None) -> None:
+    def save_settings(self, win: tk.Toplevel, settings_lang_var: tk.StringVar) -> None:
+        self.lang_var.set(settings_lang_var.get())
         self.apply_language()
-        self.save_config(silent=True)
+        self.save_config()
+        win.destroy()
 
     def apply_language(self) -> None:
         self.ui["subtitle"].configure(text=self.t("subtitle"))
@@ -651,15 +653,15 @@ class ClearMeGui(DND_ROOT):
         frame.pack(fill="both", expand=True, padx=14, pady=14)
         frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text=self.t("language")).grid(row=0, column=0, sticky="w", pady=4)
-        lang_combo = ttk.Combobox(frame, textvariable=self.lang_var, values=list(LANG_LABELS), state="readonly", width=18)
+        settings_lang_var = tk.StringVar(win, value=self.lang_var.get())
+        lang_combo = ttk.Combobox(frame, textvariable=settings_lang_var, values=list(LANG_LABELS), state="readonly", width=18)
         lang_combo.grid(row=0, column=1, sticky="w", padx=8, pady=4)
-        lang_combo.bind("<<ComboboxSelected>>", self.on_language_changed)
         self.settings_path_row(frame, 1, self.t("me_region_root"), "csme_repo")
         self.settings_path_row(frame, 2, self.t("fit_root"), "fitc_root")
         buttons = ttk.Frame(frame)
         buttons.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(12, 0))
         buttons.columnconfigure(0, weight=1)
-        ttk.Button(buttons, text=self.t("save"), command=lambda: (self.save_config(), win.destroy())).grid(row=0, column=1, padx=(8, 0))
+        ttk.Button(buttons, text=self.t("save"), command=lambda: self.save_settings(win, settings_lang_var)).grid(row=0, column=1, padx=(8, 0))
         ttk.Button(buttons, text=self.t("close"), command=win.destroy).grid(row=0, column=2, padx=(8, 0))
 
     def settings_path_row(self, parent: ttk.Frame, row: int, label: str, key: str) -> None:
@@ -855,25 +857,25 @@ class ClearMeGui(DND_ROOT):
         ttk.Label(text_frame, text=f"Auto Clear ME v{app_version()}", font=("Segoe UI", 14, "bold")).grid(row=0, column=0, sticky="w")
         ttk.Label(
             text_frame,
-            text="A tool to help Clear ME BIOS and more!",
+            text=self.t("about_description"),
             wraplength=330,
             justify="left",
         ).grid(row=1, column=0, sticky="w", pady=(8, 0))
         ttk.Label(
             text_frame,
-            text="Supports Clear ME/CSME/TXE, DMI, Win Key, BIOS Unlock, Merge/Split BIOS and Vendor Extract",
+            text=self.t("about_supports"),
             wraplength=330,
             justify="left",
         ).grid(row=2, column=0, sticky="w", pady=(12, 0))
 
         separator = ttk.Separator(frame)
         separator.grid(row=1, column=0, sticky="ew", pady=(18, 12))
-        ttk.Label(frame, text="© 2026 mhqb365 · Open Source · MIT License").grid(row=2, column=0, sticky="w")
+        ttk.Label(frame, text=self.t("about_license")).grid(row=2, column=0, sticky="w")
 
         buttons = ttk.Frame(frame)
         buttons.grid(row=3, column=0, sticky="e", pady=(16, 0))
-        ttk.Button(buttons, text="Source Code", command=lambda: webbrowser.open("https://github.com/mhqb365/AutoClearME")).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(buttons, text="Author", command=lambda: webbrowser.open("https://mhqb365.com")).grid(row=0, column=1)
+        ttk.Button(buttons, text=self.t("source_code"), command=lambda: webbrowser.open("https://github.com/mhqb365/AutoClearME")).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text=self.t("author"), command=lambda: webbrowser.open("https://mhqb365.com")).grid(row=0, column=1)
 
         win.update_idletasks()
         x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2

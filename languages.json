@@ -81,7 +81,7 @@
       "clear_log": "Clear log",
       "stop": "Stop",
       "browse": "Select",
-      "settings_title": "Auto Clear ME Settings",
+      "settings_title": "Settings",
       "data_sources": "Settings",
       "fit_root": "FIT root",
       "me_region_root": "ME Region root",
@@ -111,7 +111,12 @@
       "update_available_message": "Auto Clear ME v{version} is available. Update it now?",
       "changelog": "Changelog",
       "update_starting": "Starting update. The app will close and reopen after the update",
-      "update_check_failed": "Could not check for updates"
+      "update_check_failed": "Could not check for updates",
+      "about_description": "A tool to help Clear ME BIOS and more!",
+      "about_supports": "Supports Clear ME/CSME/TXE, DMI, Win Key, BIOS Unlock, Merge/Split BIOS and Vendor Extract",
+      "about_license": "© 2026 mhqb365 · Open Source · MIT License",
+      "source_code": "Source Code",
+      "author": "Author"
     },
     "vi": {
       "language": "Ngôn ngữ",
@@ -190,7 +195,7 @@
       "clear_log": "Xóa log",
       "stop": "Dừng",
       "browse": "Chọn",
-      "settings_title": "Cài đặt Auto Clear ME",
+      "settings_title": "Cài đặt",
       "data_sources": "Cài đặt",
       "fit_root": "Thư mục FIT",
       "me_region_root": "Thư mục ME Region",
@@ -220,7 +225,12 @@
       "update_available_message": "Auto Clear ME đã có bản mới v{version}. Cập nhật ngay bây giờ?",
       "changelog": "Thay đổi",
       "update_starting": "Đang bắt đầu cập nhật. App sẽ đóng và mở lại sau khi cập nhật xong",
-      "update_check_failed": "Không thể kiểm tra cập nhật"
+      "update_check_failed": "Không thể kiểm tra cập nhật",
+      "about_description": "Công cụ hỗ trợ Clear ME BIOS và hơn thế nữa!",
+      "about_supports": "Hỗ trợ Clear ME/CSME/TXE, DMI, Win Key, mở khóa BIOS, ghép/tách BIOS và extract BIOS hãng",
+      "about_license": "© 2026 mhqb365 · Mã nguồn mở · Giấy phép MIT",
+      "source_code": "Mã nguồn",
+      "author": "Tác giả"
     }
   }
 }
